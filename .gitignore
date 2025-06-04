@@ -1,0 +1,34 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+# yarn.lock       # If using yarn, you'd commit this
+
+# Environment variables
+.env
+.env*.local
+.env*.development
+.env*.test
+.env*.production
+
+# Operating System generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE / Editor specific files (examples, add your own if needed)
+.vscode/
+*.swp
+*~
+*.sublime-project
+*.sublime-workspace
+
+# Build output (if you ever add a build step)
+dist/
+build/
+out/
+
+# Test outputs
+coverage/
+.nyc_output/

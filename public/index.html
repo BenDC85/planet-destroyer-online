@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Planet Destroyer Online</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- <link rel="icon" type="image/png" href="favicon.png"> You'll need to add this if you have one -->
+    <style>
+        /* Basic styles for join elements - can be moved to style.css later */
+        body { font-family: Arial, sans-serif; margin: 0; background-color: #1a1a1a; color: #e0e0e0; overflow: hidden; }
+        .join-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(40, 40, 40, 0.95);
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.5);
+            text-align: center;
+            z-index: 200; /* Ensure it's above canvas but below potential popups */
+        }
+        .join-container h1 { margin-top: 0; color: #4CAF50; }
+        .join-container label { display: block; margin-top: 15px; margin-bottom: 5px; text-align: left; color: #ccc; }
+        .join-container input[type="text"], .join-container select {
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #555;
+            border-radius: 4px;
+            background-color: #333;
+            color: #fff;
+            font-size: 1em;
+        }
+        .join-container button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1.1em;
+            transition: background-color 0.3s;
+            width: 100%;
+        }
+        .join-container button:hover { background-color: #45a049; }
+        .join-container button:disabled { background-color: #777; cursor: not-allowed; }
+        .join-message { color: #ff6b6b; margin-top: 15px; min-height: 20px; }
+        .hidden { display: none; }
+
+        #messages {
+            position: absolute;
+            bottom: 20px; /* Adjusted to be above scrollbars if they appear */
+            left: 5px;
+            width: calc(100% - 310px); /* Adjust based on HUD width + scrollbar */
+            max-height: 100px;
+            overflow-y: auto;
+            background-color: rgba(0,0,0,0.6);
+            padding: 5px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            z-index: 90; /* Below HUD */
+        }
+        #message-list { list-style-type: none; padding: 0; margin: 0; }
+        #message-list li { padding: 2px 0; border-bottom: 1px solid #444; }
+        #message-list li:last-child { border-bottom: none; }
+
+        #devHud { z-index: 100; } /* Ensure HUD is above game messages */
+        canvas#gameCanvas { display: block; } /* Ensure canvas is block for proper layout */
+
+    </style>
+</head>
+<body>
+
+    <!-- Join Game Section -->
+    <div id="join-section" class="join-container">
+        <h1>Planet Destroyer Online</h1>
+        <div>
+            <label for="user-id-input">User ID (Unique Identifier):</label>
+            <input type="text" id="user-id-input" placeholder="e.g., BenPlayer123">
+        </div>
+        <div>
+            <label for="player-name-input">Player Name (Display Name):</label>
+            <input type="text" id="player-name-input" placeholder="e.g., Commander Ben">
+        </div>
+        <div>
+            <label for="ship-color-select">Choose Ship Color:</label>
+            <select id="ship-color-select">
+                <option value="#FF0000">Red</option>
+                <option value="#00FF00" selected>Green</option>
+                <option value="#0000FF">Blue</option>
+                <option value="#FFFF00">Yellow</option>
+                <option value="#FF00FF">Magenta</option>
+                <option value="#00FFFF">Cyan</option>
+            </select>
+        </div>
+        <button id="join-game-button">Join Game</button>
+        <p id="join-message" class="join-message"></p>
+    </div>
+
+    <!-- Game Area (Initially hidden) -->
+    <div id="game-content" class="hidden">
+        <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_START=hudContainer## -->
+        <div id="devHud">
+            <p><label>Status:</label> <span class="value" id="hud_status">Loading...</span></p>
+            <p><label>Mass:</label> <span class="value" id="hud_massRemaining">-- / --</span></p>
+            <p><label>Craters:</label> <span class="value" id="hud_craterCount">--</span></p>
+            <p><label>Ship Angle:</label> <span class="value" id="hud_shipAngleValue">--</span></p>
+            <p><label>Ship Health:</label> <span class="value" id="hud_shipHealth">--</span></p> <!-- **** THIS IS THE NEW LINE **** -->
+
+            <hr class="separator">
+            <p class="section-title collapsible" data-target="inGameControls">In-Game Controls [-]</p>
+            <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_START=inGameControlsDiv## -->
+            <div class="collapsible-content" id="inGameControls">
+                <p>
+                     <label for="hud_damageRadiusInput" title="Crater radius from direct clicks. Suggest: 1-100">Click Damage Radius:</label>
+                     <input type="number" id="hud_damageRadiusInput" class="number-input" step="1" min="1" max="100" value="100">
+                     <span class="value" id="hud_damageRadiusValue">100</span>
+                </p>
+                <p>
+                    <label for="hud_projectileSpeedInput" title="Initial launch speed. HUD 100 = 1.0 internal. Range 1-9999.">Projectile Launch Speed:</label>
+                    <input type="number" id="hud_projectileSpeedInput" class="number-input" step="1" min="1" max="9999" value="100">
+                    <span class="value" id="hud_projectileSpeedValue">100</span>
+                </p>
+                <p>
+                    <label for="hud_projectileMassInput" title="Mass of projectiles (kg). Affects KE, damage, crater size. Suggest: 1-1000+">Projectile Mass (kg):</label>
+                    <input type="number" id="hud_projectileMassInput" class="number-input" step="10" min="1" value="5">
+                    <span class="value" id="hud_projectileMassValue">5</span>
+                </p>
+                <p class="zoom-controls">
+                    <label for="hud_cameraZoomInput" title="Zoom level. Suggest: 0.2-3.0">Camera Zoom:</label>
+                     <input type="number" id="hud_cameraZoomInput" class="number-input" step="0.1" min="0.2" max="3.0" value="0.2">
+                     <button class="zoom-button" id="zoomOutButton" title="Zoom Out (-0.1)">-</button>
+                     <button class="zoom-button" id="zoomInButton" title="Zoom In (+0.1)">+</button>
+                     <span class="value" id="hud_cameraZoomValue">0.2</span>
+                </p>
+                 <p>
+                     <label for="hud_shipZoomAttractInput" title="How strongly zooming IN pulls towards ship (0=None, 1=Center)">Ship Zoom Attract:</label>
+                     <input type="number" id="hud_shipZoomAttractInput" class="number-input" step="0.05" min="0.0" max="1.0" value="0.25">
+                     <span class="value" id="hud_shipZoomAttractValue">0.25</span>
+                 </p>
+                 <p>
+                     <label for="hud_planetZoomAttractInput" title="How strongly zooming OUT pushes towards nearest 1-2 planets (0=None, 1=Center on it/them)">Planet Zoom Attract:</label>
+                     <input type="number" id="hud_planetZoomAttractInput" class="number-input" step="0.05" min="0.0" max="1.0" value="0.25">
+                     <span class="value" id="hud_planetZoomAttractValue">0.25</span>
+                 </p>
+                 <p>
+                    <label for="hud_persistentChunkDriftCheckbox" title="Chunks drift forever if checked.">Persistent Drift:</label>
+                    <input type="checkbox" id="hud_persistentChunkDriftCheckbox" checked>
+                </p>
+            </div>
+            <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_END=inGameControlsDiv## -->
+
+            <hr class="separator">
+            <p class="section-title collapsible" data-target="bhFxControls">Black Hole FX [+]</p>
+            <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_START=bhFxControlsDiv## -->
+            <div class="collapsible-content collapsed" id="bhFxControls">
+                <p>
+                    <label for="hud_bhDragFactorInput" title="Strength of drag near EH (0=none, 0.1=moderate). Max: 0.99">BH Drag Factor:</label>
+                    <input type="number" id="hud_bhDragFactorInput" class="number-input" step="0.01" min="0.0" max="0.99" value="0.1">
+                    <span class="value" id="hud_bhDragFactorValue">0.10</span>
+                </p>
+                <p>
+                    <label for="hud_bhDragReachInput" title="How far drag extends (multiplier of EH radius). Suggest 1.1-5.0">BH Drag Reach:</label>
+                    <input type="number" id="hud_bhDragReachInput" class="number-input" step="0.1" min="1.1" max="10.0" value="2.5">
+                    <span class="value" id="hud_bhDragReachValue">2.5</span>
+                </p>
+                <hr class="separator sub-separator">
+                 <p>
+                    <label for="hud_bhLifeInput" title="Multiplier for BH particle lifespan. Suggest: 0.1-5.0">BH Particle Life Factor:</label>
+                    <input type="number" id="hud_bhLifeInput" class="number-input" step="0.1" min="0.1" value="1.0">
+                    <span class="value" id="hud_bhLifeValue">1.0</span>
+                </p>
+                <p>
+                    <label for="hud_bhSpeedInput" title="Multiplier for initial BH particle speed. Suggest: 0.1-5.0">BH Particle Speed Factor:</label>
+                    <input type="number" id="hud_bhSpeedInput" class="number-input" step="0.1" min="0.1" value="1.0">
+                    <span class="value" id="hud_bhSpeedValue">1.0</span>
+                </p>
+                 <p>
+                    <label for="hud_bhInwardVelInput" title="Initial BH particle push towards center. Suggest: 0.0-2.0">BH Particle Inward Vel:</label>
+                    <input type="number" id="hud_bhInwardVelInput" class="number-input" step="0.1" min="0.0" value="0.5">
+                    <span class="value" id="hud_bhInwardVelValue">0.5</span>
+                </p>
+                <p>
+                    <label for="hud_bhAngularVelInput" title="Initial BH particle sideways push (orbit). Suggest: 0.0-2.0">BH Particle Angular Vel:</label>
+                    <input type="number" id="hud_bhAngularVelInput" class="number-input" step="0.1" min="0.0" value="0.8">
+                    <span class="value" id="hud_bhAngularVelValue">0.8</span>
+                </p>
+                 <p>
+                    <label for="hud_bhSpawnRateInput" title="BH Particles generated per frame per BH. Suggest: 0-10">BH Particle Spawn Rate:</label>
+                    <input type="number" id="hud_bhSpawnRateInput" class="number-input" step="1" min="0" value="3">
+                    <span class="value" id="hud_bhSpawnRateValue">3</span>
+                </p>
+                 <p>
+                    <label for="hud_bhMaxParticlesInput" title="Max particles spawned per BH lifetime (0=infinite). Suggest: 50-10000">Max Spawned Per BH:</label>
+                    <input type="number" id="hud_bhMaxParticlesInput" class="number-input" step="50" min="0" value="400">
+                    <span class="value" id="hud_bhMaxParticlesValue">400</span>
+                </p>
+                 <p>
+                    <label for="hud_bhSpawnMinInput" title="Min BH particle Spawn Dist (% of Orig Radius). Suggest: 0.1-5.0">BH Particle Spawn Min:</label>
+                    <input type="number" id="hud_bhSpawnMinInput" class="number-input" step="0.05" min="0.1" value="0.85">
+                    <span class="value" id="hud_bhSpawnMinValue">0.85</span>
+                </p>
+                 <p>
+                    <label for="hud_bhSpawnMaxInput" title="Max BH particle Spawn Dist (% of Orig Radius). Suggest: 0.1-5.0">BH Particle Spawn Max:</label>
+                    <input type="number" id="hud_bhSpawnMaxInput" class="number-input" step="0.05" min="0.1" value="1.00">
+                    <span class="value" id="hud_bhSpawnMaxValue">1.00</span>
+                </p>
+                 <p>
+                    <label for="hud_bhParticleMinSizeInput" title="Min BH particle size (pixels). Suggest: 0.1-5.0">BH Particle Min Size:</label>
+                    <input type="number" id="hud_bhParticleMinSizeInput" class="number-input" step="0.1" min="0.1" value="0.2">
+                    <span class="value" id="hud_bhParticleMinSizeValue">0.2</span>
+                </p>
+                 <p>
+                    <label for="hud_bhParticleMaxSizeInput" title="Max BH particle size (pixels). Suggest: 0.1-5.0">BH Particle Max Size:</label>
+                    <input type="number" id="hud_bhParticleMaxSizeInput" class="number-input" step="0.1" min="0.1" value="0.7">
+                    <span class="value" id="hud_bhParticleMaxSizeValue">0.7</span>
+                </p>
+            </div>
+            <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_END=bhFxControlsDiv## -->
+
+             <hr class="separator">
+             <p class="section-title collapsible" data-target="physicsTimingControls">Physics / Timing [+]</p>
+             <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_START=physicsTimingControlsDiv## -->
+             <div class="collapsible-content collapsed" id="physicsTimingControls">
+                <p>
+                    <label for="hud_planetGravityMultiplierInput" title="Scales gravity of normal planets. HUD 1.0 = 1M internal. Higher=Stronger.">Planet Gravity Mult (x 1M):</label>
+                    <input type="number" id="hud_planetGravityMultiplierInput" class="number-input" step="0.1" min="0.0" value="1.0">
+                    <span class="value" id="hud_planetGravityMultiplierValue">1.0</span>
+                </p>
+                  <p>
+                     <label for="hud_craterScaleInput" title="Crater radius scaling factor (c). R_m = c * m^(1/3) * v^0.7. Suggest: 1e-4 to 1e-1">Crater Scale (c):</label>
+                     <input type="number" id="hud_craterScaleInput" class="number-input" step="1e-5" min="0" value="0.05">
+                     <span class="value" id="hud_craterScaleValue">5.0e-2</span>
+                 </p>
+                  <p>
+                     <label for="hud_keToEjectInput" title="KE (J) to Mass Ejected (kg) factor (eta). Mass_eject = eta * KE. Suggest: 1-100">KE-to-Eject (eta):</label>
+                     <input type="number" id="hud_keToEjectInput" class="number-input" step="1" min="0" value="30">
+                     <span class="value" id="hud_keToEjectValue">3.0e+1</span>
+                 </p>
+                  <p>
+                     <label for="hud_bhEnergyMultInput" title="Energy multiplier for BH formation (E_total > mult * U). Suggest: 1.1 - 10+">BH Energy Mult:</label>
+                     <input type="number" id="hud_bhEnergyMultInput" class="number-input" step="0.1" min="1.01" value="2.0">
+                     <span class="value" id="hud_bhEnergyMultValue">2.0</span>
+                 </p>
+                  <hr class="separator sub-separator">
+                 <p>
+                    <label for="hud_chunkLifespanInput" title="Frames chunks live if Persistent Drift OFF. Suggest: 50-2000">Chunk Lifespan:</label>
+                    <input type="number" id="hud_chunkLifespanInput" class="number-input" step="50" min="1" value="400">
+                    <span class="value" id="hud_chunkLifespanValue">400</span>
+                </p>
+                 <p>
+                    <label for="hud_chunkMaxSpeedInput" title="Speed above which chunks get targeted for removal. Suggest: 10-500">Chunk Max Speed:</label>
+                    <input type="number" id="hud_chunkMaxSpeedInput" class="number-input" step="10" min="1" value="100">
+                    <span class="value" id="hud_chunkMaxSpeedValue">100</span>
+                </p>
+                 <p>
+                    <label for="hud_coreExplosionInput" title="Duration of explosion effects phase (frames). Suggest: 10-150">Core Explode (f):</label>
+                    <input type="number" id="hud_coreExplosionInput" class="number-input" step="5" min="1" value="45">
+                    <span class="value" id="hud_coreExplosionValue">45</span>
+                </p>
+                 <p>
+                    <label for="hud_coreImplosionInput" title="Duration of implosion effects phase (frames). Suggest: 5-100">Core Implode (f):</label>
+                    <input type="number" id="hud_coreImplosionInput" class="number-input" step="1" min="1" value="22">
+                    <span class="value" id="hud_coreImplosionValue">22</span>
+                </p>
+            </div>
+            <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_END=physicsTimingControlsDiv## -->
+
+            <hr class="separator">
+            <p class="section-title collapsible" data-target="setupControls">Setup [+]</p>
+            <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_START=setupControlsDiv## -->
+             <div class="collapsible-content collapsed" id="setupControls">
+                 <p>
+                    <label for="hud_planetCountInput" title="Number of planets generated on Reset. 1-50">Planet Count:</label>
+                    <input type="number" id="hud_planetCountInput" class="number-input" step="1" min="1" max="50" value="6">
+                    <span class="value" id="hud_planetCountValue">6</span>
+                </p>
+                 <p>
+                    <label for="hud_bhGravityConstInput" title="BH Gravity as a factor of a reference planet's G*M. Suggest: 0.1-999">BH Gravity Factor:</label>
+                    <input type="number" id="hud_bhGravityConstInput" class="number-input" step="0.5" min="0.1" max="999" value="10">
+                    <span class="value" id="hud_bhGravityConstValue">10.0</span>
+                 </p>
+                 <p>
+                    <label for="hud_bhEventHorizonInput" title="Radius (pixels) where objects are absorbed by black holes. Suggest: 1 - 50">BH Event Horizon:</label>
+                    <input type="number" id="hud_bhEventHorizonInput" class="number-input" step="1" min="0" value="30">
+                    <span class="value" id="hud_bhEventHorizonValue">30</span>
+                 </p>
+                <button id="logSettingsButton" title="Log all current game settings to the console">Log Current Settings</button>
+                <button id="resetButton" title="Apply ALL current settings and restart">Reset Game</button>
+            </div>
+            <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_END=setupControlsDiv## -->
+        </div>
+        <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_END=hudContainer## -->
+
+        <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_START=canvasElement## -->
+        <canvas id="gameCanvas"></canvas>
+        <input type="range" id="horizontalScrollbar" class="scroll-bar horizontal">
+        <input type="range" id="verticalScrollbar" class="scroll-bar vertical">
+        <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_END=canvasElement## -->
+
+        <!-- Game Log / Server Messages Area -->
+        <div id="messages">
+            <ul id="message-list"></ul>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="module" src="js/network.js"></script> 
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
