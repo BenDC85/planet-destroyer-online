@@ -24,14 +24,6 @@ export class Chunk {
         this.massKg = Math.max(1, Math.round(approxArea * config.CHUNK_MASS_AREA_FACTOR));
         this.damage = 0; // KE damage calculated on impact
 
-        // ---- START OF PROPERTIES TO ADD ----
-        this.targetX = x;                       // Where the server wants it to be (X)
-        this.targetY = y;                       // Where the server wants it to be (Y)
-        this.targetAngle = this.angle;          // Where the server wants its angle to be
-        this.lastServerUpdateTime = 0;          // When did we last hear from the server about this chunk?
-        this.INTERPOLATION_FACTOR = 0.2;        // How quickly to glide (0.0 to 1.0). Try 0.1, 0.2, or 0.3.
-        // ---- END OF PROPERTIES TO ADD ----
-
         // Initial Velocity
         const radialSpeed = config.CHUNK_INITIAL_RADIAL_SPEED_MIN + Math.random() * config.CHUNK_INITIAL_RADIAL_SPEED_RANDOM_RANGE;
         const radialVx = Math.cos(initialAngle) * radialSpeed;
@@ -78,7 +70,6 @@ export class Chunk {
             return;
         }
 
-        // === STAGE 1: Client Predicts Its Own Movement (Keep this existing logic) ===
         this.prevX = this.x;
         this.prevY = this.y;
 
@@ -179,47 +170,21 @@ export class Chunk {
             }
         }
 
-        if (this.isTargetedForRemoval) {
-            // This is a special state, interpolation is bypassed.
-            this.x += this.vx;
-            this.y += this.vy;
-            for (const planet of planets) {
-                if (!planet.isBlackHole && utils.distanceSq(this, planet) < config.CHUNK_PROXIMITY_REMOVAL_RADIUS_SQ_PX) {
-                    this.isActive = false;
-                    this.life = 0;
-                    return;
-                }
-            }
-        } else {
-            // Predict client-side movement
+         if (this.isTargetedForRemoval) {
+             this.x += this.vx;
+             this.y += this.vy;
+             for (const planet of planets) {
+                 if (!planet.isBlackHole && utils.distanceSq(this, planet) < config.CHUNK_PROXIMITY_REMOVAL_RADIUS_SQ_PX) {
+                     this.isActive = false;
+                     this.life = 0;
+                     return;
+                 }
+             }
+         } else {
             this.x += this.vx;
             this.y += this.vy;
             this.angle += this.angularVelocity;
 
-            // === STAGE 2: Smoothly Glide Towards Server's Target Position ===
-            if (this.lastServerUpdateTime > 0) { // Check if we have a target from the server
-                
-                // Move current position a bit closer to the target position
-                this.x = this.x + (this.targetX - this.x) * this.INTERPOLATION_FACTOR;
-                this.y = this.y + (this.targetY - this.y) * this.INTERPOLATION_FACTOR;
-
-                // Smoothly change angle towards target angle (handles wrapping around 360 degrees)
-                let angleDifference = this.targetAngle - this.angle;
-                while (angleDifference > Math.PI) { angleDifference -= (2 * Math.PI); }
-                while (angleDifference < -Math.PI) { angleDifference += (2 * Math.PI); }
-                this.angle = this.angle + angleDifference * this.INTERPOLATION_FACTOR;
-                this.angle = (this.angle + 2 * Math.PI) % (2 * Math.PI); // Keep angle between 0 and 2PI
-
-                // Optional: If it's super close, just snap it to avoid tiny wobbles
-                const distanceToTargetSquared = (this.targetX - this.x)**2 + (this.targetY - this.y)**2;
-                if (distanceToTargetSquared < (0.1 * 0.1)) { // e.g., less than 0.1 pixels
-                    this.x = this.targetX;
-                    this.y = this.targetY;
-                    // Note: Angle snapping might not be needed if interpolation is good
-                }
-            }
-
-            // === STAGE 3: Other Client-Side Checks (use the new, interpolated this.x, this.y) ===
             // Standard damping if persistentDrift is OFF AND not near BH for gravity OR drag
             if (!this.persistentDrift && !isNearActiveBH_for_damping) {
                 this.vx *= config.CHUNK_VELOCITY_DAMPING_FACTOR;
@@ -244,7 +209,7 @@ export class Chunk {
                     this.isActive = false;
                 }
             }
-        }
+         }
     }
 
     // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=chunkDrawFunction##
