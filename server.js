@@ -380,6 +380,24 @@ function updateServerChunks() {
             let accelerationMagnitude_mps2 = 0;
             if (planet.isBlackHole || planet.willBecomeBlackHole) {
                 if (dist_m > 0) { accelerationMagnitude_mps2 = SV_BLACK_HOLE_GRAVITATIONAL_CONSTANT / (dist_m * dist_m); }
+
+                // ---- START OF CODE TO ADD ----
+                const ehRadius_Server = SV_BH_EVENT_HORIZON_RADIUS_PX;
+                const dragZoneOuterRadius_Server = ehRadius_Server * SV_BH_DRAG_ZONE_MULTIPLIER;
+
+                // Check if the chunk is within the drag zone (but outside the event horizon)
+                if (dist_pixels < dragZoneOuterRadius_Server && dist_pixels > ehRadius_Server) {
+                    const normalizedDistInZone = (dragZoneOuterRadius_Server - dist_pixels) / (dragZoneOuterRadius_Server - ehRadius_Server);
+                    const dragCoeff = SV_BH_DRAG_COEFFICIENT_MAX * normalizedDistInZone;
+
+                    // Apply drag to the chunk's velocity
+                    chunk.vx *= (1 - dragCoeff);
+                    chunk.vy *= (1 - dragCoeff);
+                    // Optional: If your client also drags angularVelocity, do it here too for consistency
+                    chunk.angularVelocity *= (1 - dragCoeff * 0.5); 
+                }
+                // ---- END OF CODE TO ADD ----
+                
                 const ehRadius = SV_BH_EVENT_HORIZON_RADIUS_PX;
                 if (distSq_pixels <= ehRadius * ehRadius) {
                     chunk.isActive = false; wasAbsorbedByBH = true;
