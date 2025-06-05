@@ -172,8 +172,67 @@ function setupSocketListeners() {
         }
     });
 
-    socket.on('chunks_created', (newChunksData) => { const clientState = getState(); if (!clientState || !clientState.settings) return; newChunksData.forEach(chunkData => { const settings = clientState.settings;  const newChunk = new Chunk( chunkData.x, chunkData.y, 0, 0, 0, settings,  chunkData.originPlanetId ); newChunk.id = chunkData.id;  newChunk.vx = chunkData.vx; newChunk.vy = chunkData.vy; newChunk.angle = chunkData.angle; newChunk.angularVelocity = chunkData.angularVelocity; newChunk.points = chunkData.points;  newChunk.size = chunkData.size;  newChunk.massKg = chunkData.massKg;  newChunk.isActive = chunkData.isActive; clientState.chunks.push(newChunk); }); });
-    socket.on('chunks_update', (serverChunksData) => { const clientState = getState(); if (!clientState || !clientState.chunks) return; serverChunksData.forEach(serverChunkData => { const clientChunk = clientState.chunks.find(c => c.id === serverChunkData.id); if (clientChunk) { clientChunk.x = serverChunkData.x; clientChunk.y = serverChunkData.y; clientChunk.angle = serverChunkData.angle; clientChunk.isActive = serverChunkData.isActive; }  }); clientState.chunks = clientState.chunks.filter(c => { const serverVersion = serverChunksData.find(sc => sc.id === c.id); if (serverVersion) { return serverVersion.isActive;  } if (!serverVersion && c.isActive) { c.isActive = false;  } return c.isActive || (!c.persistentDrift && c.life > 0);  }); });
+    socket.on('chunks_created', (newChunksData) => {
+        const clientState = getState();
+        if (!clientState || !clientState.settings) return;
+        newChunksData.forEach(chunkData => {
+            const settings = clientState.settings;
+            const newChunk = new Chunk(
+                chunkData.x, chunkData.y,
+                0, 0, 0,
+                settings,
+                chunkData.originPlanetId
+            );
+            newChunk.id = chunkData.id;
+            newChunk.vx = chunkData.vx;
+            newChunk.vy = chunkData.vy;
+            newChunk.angle = chunkData.angle;
+            newChunk.angularVelocity = chunkData.angularVelocity;
+            newChunk.points = chunkData.points;
+            newChunk.size = chunkData.size;
+            newChunk.massKg = chunkData.massKg;
+            newChunk.isActive = chunkData.isActive;
+
+            // Initialize targets for the new chunk for interpolation
+            newChunk.targetX = newChunk.x;
+            newChunk.targetY = newChunk.y;
+            newChunk.targetAngle = newChunk.angle;
+            newChunk.lastServerUpdateTime = Date.now();
+
+            clientState.chunks.push(newChunk);
+        });
+    });
+
+    socket.on('chunks_update', (serverChunksData) => {
+        const clientState = getState();
+        if (!clientState || !clientState.chunks) return;
+
+        serverChunksData.forEach(serverChunkData => {
+            const clientChunk = clientState.chunks.find(c => c.id === serverChunkData.id);
+            if (clientChunk) {
+                // Instead of snapping, store the server's state as a target
+                clientChunk.targetX = serverChunkData.x;
+                clientChunk.targetY = serverChunkData.y;
+                clientChunk.targetAngle = serverChunkData.angle;
+                clientChunk.lastServerUpdateTime = Date.now();
+
+                // isActive can still be set directly
+                clientChunk.isActive = serverChunkData.isActive;
+            }
+        });
+
+        clientState.chunks = clientState.chunks.filter(c => {
+            const serverVersion = serverChunksData.find(sc => sc.id === c.id);
+            if (serverVersion) {
+                return serverVersion.isActive;
+            }
+            if (!serverVersion && c.isActive) {
+                c.isActive = false;
+            }
+            return c.isActive || (!c.persistentDrift && c.life > 0);
+        });
+    });
+    
     socket.on('world_reset_data', (newWorldData) => { console.log('[NETWORK] Received world_reset_data from server. Re-initializing client state.'); addMessageToLog('Server has reset the world. Reloading map...'); stopGameLoop(); const clientState = getState(); if (clientState) { clientState.projectiles = []; clientState.chunks = []; clientState.particles = []; clientState.bhParticles = []; } initializeGame(newWorldData, myServerData);  });
     socket.on('player_state_reset', (playerDataFromServer) => { console.log(`[NETWORK] Received player_state_reset for ${playerDataFromServer.playerName} (${playerDataFromServer.socketId})`); allPlayersData[playerDataFromServer.socketId] = playerDataFromServer;  const clientState = getState(); if (myServerData && myServerData.socketId === playerDataFromServer.socketId) { myServerData = playerDataFromServer;  if (clientState && clientState.ship) { clientState.ship.x = playerDataFromServer.x; clientState.ship.y = playerDataFromServer.y; clientState.ship.angle = playerDataFromServer.angle; clientState.ship.health = playerDataFromServer.health;  clientState.ship.isAlive = playerDataFromServer.isAlive;  } } else if (clientState && clientState.remotePlayers && clientState.remotePlayers[playerDataFromServer.socketId]) { /* updateRemotePlayerShips will handle */ } });
 
