@@ -4,7 +4,9 @@
 import * as config from '../config.js';
 import * as utils from '../utils.js';
 import { getState, updateRemotePlayerShips } from './gameState.js'; 
-// Chunk and Particle are no longer directly instantiated by generateInitialDebris here
+// Chunk is no longer directly instantiated by generateInitialDebris here
+// Particle is imported for addParticleToState
+import { Particle } from '../entities/Particle.js'; 
 import { sendProjectileFireRequest } from '../network.js'; 
 
 
@@ -66,8 +68,14 @@ export function fireShipProjectile() {
 
 export function addProjectile(projectileInstance) { 
     const state = getState();
-    if (state && projectileInstance) {
-        state.projectiles.push(projectileInstance);
+    if (state && projectileInstance) state.projectiles.push(projectileInstance);
+}
+
+// **** NEW: Export function to add a single particle to the state ****
+export function addParticleToState(particleInstance) {
+    const state = getState();
+    if (state && particleInstance) {
+        state.particles.push(particleInstance);
     }
 }
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=shipControlModifiers##
@@ -245,7 +253,7 @@ export function filterDebris() {
 
     state.projectiles = state.projectiles.filter(p => p.isActive || (p.trailPersistsAfterImpact && p.trailLife > 0));
     state.particles = state.particles.filter(p => p.life > 0 && p.radius > 0.1);
-    state.chunks = state.chunks.filter(c => c.isActive || (!c.persistentDrift && c.life > 0)); // Keep if persistent or has life
+    state.chunks = state.chunks.filter(c => c.isActive || (!c.persistentDrift && c.life > 0)); 
     state.bhParticles = state.bhParticles.filter(p => p.isActive);
 
 
@@ -258,37 +266,18 @@ export function filterDebris() {
 
 // --- Destruction Sequence Trigger (Client-side visual prediction / initiation) ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=destructionTrigger##
 export function triggerDestructionSequence(planet, impactX, impactY) {
-    // This function is now only for CLIENT-SIDE PREDICTION of breakup visuals.
-    // The server is authoritative for actual state changes (isBreakingUp, isDestroying etc.)
     if (!planet || planet.isBreakingUp || planet.isDestroying || planet.isBlackHole || planet.isDestroyed) {
         return false; 
     }
-    const state = getState();
-    if (!state || !state.settings) return false;
-
-
-    // Client can predictively set isBreakingUp for immediate visual feedback.
-    // The server's 'planet_update' will confirm or correct this.
-    // If the server's update already has isBreakingUp=true, this does little harm.
-    // if (!planet.isBreakingUp) { // Only if not already set by a very recent server update
-    //     planet.isBreakingUp = true;
-    //     planet.breakupFrame = 0; // Reset local animation frame
-    //     planet.lastImpactPoint = { x: impactX, y: impactY }; // For visual effect origin
-    // }
-    // The above predictive setting of isBreakingUp can cause visual flicker if server update is quick.
-    // It's generally better to wait for server's planet_update to set these flags.
-    // The client's stateProgression will then use these server-set flags to drive animations.
-
-    // **** Client-side predictive debris generation is REMOVED ****
-    // generateInitialDebris(state, planet); // REMOVED
-
-    console.log(`[CLIENT] Destruction sequence for planet ${planet.id} will be driven by server state.`);
-    return true; // Indicate that the local trigger attempt was made (even if it now does less)
+    // Client no longer generates debris here; server is authoritative.
+    // Client will receive planet state updates (isBreakingUp etc.) from server.
+    console.log(`[CLIENT] Destruction sequence for planet ${planet.id} will be driven by server state. Impact at (${impactX.toFixed(0)}, ${impactY.toFixed(0)}) noted for potential client effects.`);
+    // We can still set lastImpactPoint for client-side effects if needed immediately
+    planet.lastImpactPoint = { x: impactX, y: impactY };
+    return true; 
 }
 
-// **** generateInitialDebris function is REMOVED from here ****
-// function generateInitialDebris(state, planet) { /* ... */ }
-
+// generateInitialDebris function is fully removed.
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=destructionTrigger##
 
 
@@ -301,13 +290,10 @@ export function advanceDestructionElapsedTime(planet) {
 export function advanceGraceFrame(planet) { if (planet && planet.chunkGracePeriodFrame > 0) planet.chunkGracePeriodFrame++; }
 
 
-// These phase setters are no longer called by client-side logic to determine state.
-// They are only called by network.js when applying authoritative server state.
 export function setPhaseToDestroying(planet) { 
     if (planet) { 
         planet.isBreakingUp = false; 
         planet.isDestroying = true; 
-        // planet.explosionFrame = 0; // Server should send this
     }
 }
 export function applyServerPlanetState(planetId, serverPlanetData) {
@@ -320,7 +306,7 @@ export function applyServerPlanetState(planetId, serverPlanetData) {
         Object.assign(clientPlanet, serverPlanetData);
     } else {
         console.warn(`[CLIENT S_MOD] applyServerPlanetState: Planet ID ${planetId} not found on client. Adding it.`);
-        state.planets.push(serverPlanetData); // Add if missing, assumes serverPlanetData is complete
+        state.planets.push(serverPlanetData); 
     }
 }
 
