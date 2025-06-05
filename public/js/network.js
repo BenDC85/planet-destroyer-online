@@ -296,7 +296,8 @@ function setupSocketListeners() {
 
     socket.on('ship_hit_by_chunk', (hitData) => {
         const targetName = allPlayersData[hitData.hitPlayerId]?.playerName || `Player ${hitData.hitPlayerId}`;
-        addMessageToLog(`Ship ${targetName} was hit by flying debris! HP: ${hitData.newHealth}`);
+        const damage = hitData.damageDealt || 'significant';
+        addMessageToLog(`Ship ${targetName} was hit by debris for ${damage} damage! HP: ${hitData.newHealth}`);
 
         const clientState = getState();
         if (!clientState) return;

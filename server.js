@@ -98,7 +98,9 @@ const SV_CHUNK_IMPACT_ENERGY_SCALE_FACTOR = 1;
 const SV_SHIP_RADIUS_PX = 12.5;
 const SV_SHIP_DEFAULT_HEALTH = 100;
 const SV_PROJECTILE_DAMAGE = 25;
-const SV_CHUNK_DAMAGE = 15;
+const SV_CHUNK_DAMAGE_MIN = 5;      // Minimum damage a chunk can do on impact
+const SV_CHUNK_DAMAGE_MAX = 40;     // Maximum damage a chunk can do on impact
+const SV_CHUNK_DAMAGE_KE_SCALING_FACTOR = 0.02; // How much kinetic energy translates to damage. TUNE THIS!
 const SV_SHIP_RESPAWN_DELAY_MS = 5000;
 const SV_SHIP_SPAWN_SAFETY_RADIUS_FACTOR = 3.0;
 const SV_MAX_PLAYER_SPAWN_ATTEMPTS = 100;
@@ -381,22 +383,17 @@ function updateServerChunks() {
             if (planet.isBlackHole || planet.willBecomeBlackHole) {
                 if (dist_m > 0) { accelerationMagnitude_mps2 = SV_BLACK_HOLE_GRAVITATIONAL_CONSTANT / (dist_m * dist_m); }
 
-                // ---- START OF CODE TO ADD ----
                 const ehRadius_Server = SV_BH_EVENT_HORIZON_RADIUS_PX;
                 const dragZoneOuterRadius_Server = ehRadius_Server * SV_BH_DRAG_ZONE_MULTIPLIER;
 
-                // Check if the chunk is within the drag zone (but outside the event horizon)
                 if (dist_pixels < dragZoneOuterRadius_Server && dist_pixels > ehRadius_Server) {
                     const normalizedDistInZone = (dragZoneOuterRadius_Server - dist_pixels) / (dragZoneOuterRadius_Server - ehRadius_Server);
                     const dragCoeff = SV_BH_DRAG_COEFFICIENT_MAX * normalizedDistInZone;
 
-                    // Apply drag to the chunk's velocity
                     chunk.vx *= (1 - dragCoeff);
                     chunk.vy *= (1 - dragCoeff);
-                    // Optional: If your client also drags angularVelocity, do it here too for consistency
                     chunk.angularVelocity *= (1 - dragCoeff * 0.5); 
                 }
-                // ---- END OF CODE TO ADD ----
                 
                 const ehRadius = SV_BH_EVENT_HORIZON_RADIUS_PX;
                 if (distSq_pixels <= ehRadius * ehRadius) {
@@ -507,9 +504,24 @@ function updateServerChunks() {
                 const distSqToShip = serverDistanceSq({x: chunk.x, y: chunk.y}, player);
 
                 if (distSqToShip < collisionDist * collisionDist) {
-                    chunk.isActive = false; player.health -= SV_CHUNK_DAMAGE;
-                    console.log(`[SERVER] Chunk ${chunk.id} HIT SHIP ${player.socketId}. Player Health: ${player.health}`);
-                    io.emit('ship_hit_by_chunk', { chunkId: chunk.id, hitPlayerId: player.socketId, newHealth: player.health });
+                    chunk.isActive = false;
+
+                    const chunkSpeedSq = chunk.vx**2 + chunk.vy**2;
+                    const kineticEnergy = 0.5 * chunk.massKg * chunkSpeedSq;
+                    let damageDealt = kineticEnergy * SV_CHUNK_DAMAGE_KE_SCALING_FACTOR;
+                    damageDealt = Math.round(damageDealt);
+                    damageDealt = Math.max(SV_CHUNK_DAMAGE_MIN, Math.min(damageDealt, SV_CHUNK_DAMAGE_MAX));
+                    
+                    player.health -= damageDealt;
+
+                    console.log(`[SERVER] Chunk ${chunk.id} HIT SHIP ${player.socketId} for ${damageDealt} damage. Player Health: ${player.health}`);
+                    io.emit('ship_hit_by_chunk', {
+                        chunkId: chunk.id,
+                        hitPlayerId: player.socketId,
+                        newHealth: player.health,
+                        damageDealt: damageDealt
+                    });
+
                     if (player.health <= 0) {
                         player.isAlive = false; player.health = 0;
                         console.log(`[SERVER] Ship ${player.socketId} (${player.playerName}) DESTROYED by chunk ${chunk.id}.`);
