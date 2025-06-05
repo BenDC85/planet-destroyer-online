@@ -584,8 +584,8 @@ setInterval(() => {
 }, SV_PROJECTILE_UPDATE_INTERVAL_MS);
 
 
-server.listen(PORT, () => {
-    console.log(`Server for Planet Destroyer Online is running on http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server for Planet Destroyer Online is running on http://0.0.0.0:${PORT}`);
     console.log("Socket.IO is attached and listening.");
     if (supabaseUrl && supabaseKey) console.log("Supabase client is configured.");
     else console.warn("Supabase URL/Key NOT DETECTED. Database features will fail.");
