@@ -1,3 +1,4 @@
+/* File: public/js/network.js */
 // public/js/network.js
 
 import { initializeGame, stopGameLoop } from './main.js';
@@ -123,7 +124,7 @@ function setupSocketListeners() {
     });
 
     socket.on('join_fail', (message) => {
-        console.error('[NETWORK] \'join_fail\' received from server:', message);
+        console.error('[NETWORK] \\\\'join_fail\\\\' received from server:', message);
         addMessageToLog(`Join failed: ${message}`);
         joinMessageParagraph.textContent = message;
         if (joinGameButton) joinGameButton.disabled = false;
@@ -175,30 +176,12 @@ function setupSocketListeners() {
     socket.on('chunks_created', (newChunksData) => {
         const clientState = getState();
         if (!clientState || !clientState.settings) return;
+
         newChunksData.forEach(chunkData => {
-            const settings = clientState.settings;
-            const newChunk = new Chunk(
-                chunkData.x, chunkData.y,
-                0, 0, 0,
-                settings,
-                chunkData.originPlanetId
-            );
-            newChunk.id = chunkData.id;
-            newChunk.vx = chunkData.vx;
-            newChunk.vy = chunkData.vy;
-            newChunk.angle = chunkData.angle;
-            newChunk.angularVelocity = chunkData.angularVelocity;
-            newChunk.points = chunkData.points;
-            newChunk.size = chunkData.size;
-            newChunk.massKg = chunkData.massKg;
-            newChunk.isActive = chunkData.isActive;
-
-            // Initialize targets for the new chunk for interpolation
-            newChunk.targetX = newChunk.x;
-            newChunk.targetY = newChunk.y;
-            newChunk.targetAngle = newChunk.angle;
-            newChunk.lastServerUpdateTime = Date.now();
-
+            // REFACTORED: Create a new Chunk instance by passing the server data
+            // and client settings directly to the new, cleaner constructor.
+            const newChunk = new Chunk(chunkData, clientState.settings);
+            
             clientState.chunks.push(newChunk);
         });
     });
@@ -356,6 +339,7 @@ function setupSocketListeners() {
         }
     });
 
+    // UPDATED: Changed 'chunk_hit_planet' to 'chunk_damaged_planet'
     socket.on('chunk_damaged_planet', (data) => {
         const clientState = getState();
         if (!clientState) return;
@@ -381,14 +365,6 @@ function setupSocketListeners() {
                     }
                 }
             }
-        }
-    });
-
-    socket.on('chunk_hit_planet', (data) => {
-        const clientState = getState();
-        if (clientState && clientState.chunks) {
-            const chunk = clientState.chunks.find(c => c.id === data.chunkId);
-            if (chunk) { chunk.isActive = false; }
         }
     });
 

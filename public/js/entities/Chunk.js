@@ -1,3 +1,4 @@
+/* File: public/js/entities/Chunk.js */
 // js/entities/Chunk.js
 
 import * as config from '../config.js';
@@ -6,69 +7,49 @@ import { getState } from '../state/gameState.js';
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=ChunkClass##
 export class Chunk {
-    /** Constructor */
-    constructor(x, y, initialAngle, planetSpinMag, planetSpinDir, settings, originPlanetId = -1) {
-        this.x = x;
-        this.y = y;
-        this.prevX = x;
-        this.prevY = y;
-        this.vx = 0;
-        this.vy = 0;
+    /** 
+     * Constructor - REFACTORED
+     * Now accepts a data object directly from the server. 
+     * It no longer generates its own properties like size, velocity, or points.
+     */
+    constructor(chunkData, settings) {
+        // --- Properties from Server Data ---
+        this.id = chunkData.id;
+        this.originPlanetId = chunkData.originPlanetId;
+        this.x = chunkData.x;
+        this.y = chunkData.y;
+        this.vx = chunkData.vx;
+        this.vy = chunkData.vy;
+        this.angle = chunkData.angle;
+        this.angularVelocity = chunkData.angularVelocity;
+        this.size = chunkData.size;
+        this.points = chunkData.points; // Shape is now dictated by the server
+        this.massKg = chunkData.massKg;
+        this.isActive = chunkData.isActive;
 
-        this.size = config.CHUNK_DEFAULT_BASE_SIZE_MIN + Math.random() * config.CHUNK_DEFAULT_BASE_SIZE_RANDOM_RANGE;
-        this.angle = Math.random() * Math.PI * 2;
-        this.angularVelocity = (Math.random() - 0.5) * config.CHUNK_DEFAULT_ANGULAR_VELOCITY_FACTOR;
-        this.isActive = true;
-
-        const approxArea = this.size * this.size; // Rough approximation
-        this.massKg = Math.max(1, Math.round(approxArea * config.CHUNK_MASS_AREA_FACTOR));
-        this.damage = 0; // KE damage calculated on impact
+        // --- Client-Side Only Properties ---
+        this.prevX = this.x;
+        this.prevY = this.y;
+        this.damage = 0; // KE damage is a server-side concept
 
         // Properties for gentle interpolation
-        this.targetX = x;
-        this.targetY = y;
+        this.targetX = this.x;
+        this.targetY = this.y;
         this.targetAngle = this.angle;
-        this.lastServerUpdateTime = 0;
-        this.INTERPOLATION_FACTOR = 0.05; // Use a much smaller factor for gentle correction
+        this.lastServerUpdateTime = Date.now();
+        this.INTERPOLATION_FACTOR = 0.05;
 
-        // Initial Velocity
-        const radialSpeed = config.CHUNK_INITIAL_RADIAL_SPEED_MIN + Math.random() * config.CHUNK_INITIAL_RADIAL_SPEED_RANDOM_RANGE;
-        const radialVx = Math.cos(initialAngle) * radialSpeed;
-        const radialVy = Math.sin(initialAngle) * radialSpeed;
-
-        const tangentialSpeedFactor = config.CHUNK_INITIAL_TANGENTIAL_SPEED_FACTOR_MIN + Math.random() * config.CHUNK_INITIAL_TANGENTIAL_SPEED_FACTOR_RANDOM_RANGE;
-        const randomTangentialSpeed = radialSpeed * tangentialSpeedFactor;
-        const randomDirection = Math.random() < 0.5 ? 1 : -1;
-        const randomTangentialVx = -Math.sin(initialAngle) * randomTangentialSpeed * randomDirection;
-        const randomTangentialVy = Math.cos(initialAngle) * randomTangentialSpeed * randomDirection;
-
-        const spinVx = -Math.sin(initialAngle) * planetSpinMag * planetSpinDir;
-        const spinVy = Math.cos(initialAngle) * planetSpinMag * planetSpinDir;
-
-        this.vx = radialVx + randomTangentialVx + spinVx;
-        this.vy = radialVy + randomTangentialVy + spinVy;
-
-        // Shape points
-        this.points = [];
-        const numPoints = config.CHUNK_DEFAULT_NUM_POINTS_MIN + Math.floor(Math.random() * config.CHUNK_DEFAULT_NUM_POINTS_RANDOM_RANGE);
-        let lastAngleForShape = Math.random() * Math.PI * 0.5;
-        for (let i = 0; i < numPoints; i++) {
-            const dist = this.size * (config.CHUNK_POINT_DISTANCE_FACTOR_MIN + Math.random() * config.CHUNK_POINT_DISTANCE_FACTOR_RANDOM_RANGE);
-            const currentAngleForShape = lastAngleForShape + (Math.PI / (numPoints / config.CHUNK_POINT_ANGLE_INCREMENT_BASE_FACTOR)) + (Math.random() - 0.5) * config.CHUNK_POINT_ANGLE_RANDOM_FACTOR;
-            this.points.push({ x: Math.cos(currentAngleForShape) * dist, y: Math.sin(currentAngleForShape) * dist });
-            lastAngleForShape = currentAngleForShape;
-        }
-
+        // Life decay properties (driven by client settings for visual fade-out)
         this.life = 1.0;
         const lifespanFrames = Math.max(1, settings.chunkLifespanFrames);
         this.lifeDecayRate = 1.0 / lifespanFrames;
-
-        this.reachedCenter = false;
-        this.isTargetedForRemoval = false;
         this.persistentDrift = settings.persistentChunkDrift;
+
+        // Other client-side state flags
+        this.reachedCenter = false;
+        this.isTargetedForRemoval = false; // This might be a purely client-side effect
         this.maxSpeedThreshold = settings.chunkMaxSpeedThreshold;
         this.maxSpeedSq = this.maxSpeedThreshold * this.maxSpeedThreshold;
-        this.originPlanetId = originPlanetId;
     }
 
     update(state) {
@@ -120,15 +101,21 @@ export class Chunk {
                     this.angularVelocity *= (1 - dragCoeff * 0.5);
                 }
 
-            } else if (planet.massKg > 0 && planet.radius_m > 0.01) {
+            } else if (planet.massKg > 0) {
                 const effectiveG = G * settings.planetGravityMultiplier;
                 const M = planet.massKg;
-                const R_planet_m = planet.radius_m;
+                const originalRadius_m = (planet.originalRadius_m || planet.originalRadius / pixelsPerMeter);
+                const coreRadius_m = originalRadius_m * config.PLANET_GRAVITY_CORE_RADIUS_FACTOR;
 
-                if (dist_m >= R_planet_m) {
-                    accelerationMagnitude_mps2 = (effectiveG * M) / (dist_m * dist_m);
-                } else {
-                    accelerationMagnitude_mps2 = (effectiveG * M * dist_m) / (R_planet_m * R_planet_m * R_planet_m);
+                if (dist_m > 0) {
+                    if (dist_m >= coreRadius_m) {
+                        // Standard "always outside" formula
+                        accelerationMagnitude_mps2 = (effectiveG * M) / (dist_m * dist_m);
+                    } else {
+                        // "Soft center" formula
+                        const forceAtCoreEdge = (effectiveG * M) / (coreRadius_m * coreRadius_m);
+                        accelerationMagnitude_mps2 = forceAtCoreEdge * (dist_m / coreRadius_m);
+                    }
                 }
             }
 

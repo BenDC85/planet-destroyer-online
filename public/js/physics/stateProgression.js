@@ -1,119 +1,73 @@
-// js/physics/stateProgression.js
-
-import * as config from '../config.js'; // For destruction timings and parameters
-import * as stateModifiers from '../state/stateModifiers.js';
-
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=stateProgressionFileContent##
-
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=updateDestructionStateFunction##
-/**
- * Updates the destruction phase and timers for EACH planet individually on the client.
- * In multiplayer, the server will be authoritative for these state changes.
- * This client-side logic is for prediction and visual smoothness.
- * @param {object} state - The global game state containing the planets array and settings.
- */
-export function updateDestructionState(state) {
-    state.planets.forEach(planet => {
-        // Pass the specific planet, global settings, AND the global state object (for chunk check)
-        updateSinglePlanetDestruction(planet, state.settings, state); 
-    });
-}
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_END=updateDestructionStateFunction##
-
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=updateSinglePlanetDestructionFunction##
-/**
- * Updates destruction state for a single planet on the client.
- * @param {object} planet - The planet object to update.
- * @param {object} settings - Global game settings (contains effect durations).
- * @param {object} globalState - The global game state (needed for checking global chunk count).
- */
-function updateSinglePlanetDestruction(planet, settings, globalState) {
-    // Use settings for core effect durations, and config for fixed phase durations
-    const currentCoreExplosionDuration = settings.coreExplosionDuration;
-    const currentCoreImplosionDuration = settings.coreImplosionDuration;
-    const coreTotalVisualDuration = currentCoreExplosionDuration + currentCoreImplosionDuration;
-
-    // --- Advance Timers for this planet (client-side prediction) ---
-    if (planet.isBreakingUp || planet.isDestroying || planet.chunkGracePeriodFrame > 0) {
-        if (planet.destructionElapsedTime !== null) { // Timer is running
-             stateModifiers.advanceDestructionElapsedTime(planet);
-        } else if (planet.isBreakingUp || planet.isDestroying) { 
-             // If timer somehow not started during active phase, initiate it (defensive)
-             planet.destructionElapsedTime = planet.isBreakingUp ? planet.breakupFrame : planet.explosionFrame;
-        }
-    }
-
-    // Advance specific phase frame counters for this planet
-    if (planet.isBreakingUp) { stateModifiers.advanceBreakupFrame(planet); }
-    else if (planet.isDestroying) { stateModifiers.advanceExplosionFrame(planet); }
-    else if (planet.chunkGracePeriodFrame > 0) { stateModifiers.advanceGraceFrame(planet); }
-
-    // --- Check for Phase Transitions for this planet (client-side prediction) ---
-    const implosionVisualStartFrame = Math.max(1, currentCoreExplosionDuration - config.CORE_EFFECT_OVERLAP_FRAMES);
-
-    // 1. Breakup -> Destroying
-    if (planet.isBreakingUp && planet.breakupFrame >= config.BREAKUP_DURATION_FRAMES) {
-        // Client predicts transition; server will send authoritative state change.
-        // For now, client makes the change for visual continuity.
-        stateModifiers.setPhaseToDestroying(planet);
-        
-        // Set SW2 reversal radius if implosion starts immediately or very early
-        if (implosionVisualStartFrame <= 0 || planet.explosionFrame >= implosionVisualStartFrame) {
-            const shockwaveSpeed1 = (planet.originalRadius * config.EFFECT_PARAMETERS.SHOCKWAVES.PRIMARY_SPEED_RADIUS_FACTOR) / Math.max(1, currentCoreExplosionDuration);
-            const shockwaveSpeed2 = shockwaveSpeed1 * config.EFFECT_PARAMETERS.SHOCKWAVES.SECONDARY_SPEED_FACTOR;
-            let radiusAtImplosionStart = planet.originalRadius + shockwaveSpeed2 * Math.max(0, implosionVisualStartFrame -1);
-            radiusAtImplosionStart = Math.max(planet.originalRadius, radiusAtImplosionStart);
-            if (planet.shockwave2ReversalStartRadius === null) {
-                 stateModifiers.setShockwaveReversalRadius(planet, radiusAtImplosionStart);
-            }
-        }
-    }
-    // 2. Destroying -> Black Hole / Destroyed / Grace
-    else if (planet.isDestroying) {
-        // Set SW2 reversal radius if it's time and not yet set
-         if (planet.explosionFrame === implosionVisualStartFrame && planet.shockwave2ReversalStartRadius === null) {
-            const shockwaveSpeed1 = (planet.originalRadius * config.EFFECT_PARAMETERS.SHOCKWAVES.PRIMARY_SPEED_RADIUS_FACTOR) / Math.max(1, currentCoreExplosionDuration);
-            const shockwaveSpeed2 = shockwaveSpeed1 * config.EFFECT_PARAMETERS.SHOCKWAVES.SECONDARY_SPEED_FACTOR;
-            let radius = planet.originalRadius + shockwaveSpeed2 * Math.max(0, planet.explosionFrame - 1);
-            radius = Math.max(planet.originalRadius, radius);
-            stateModifiers.setShockwaveReversalRadius(planet, radius);
-         }
-
-        // Check if core destruction animation timing is finished (client-side prediction)
-        if (planet.explosionFrame >= coreTotalVisualDuration) {
-            if (!planet.isBlackHole && !planet.isDestroyed) { 
-                 // Client predicts outcome based on willBecomeBlackHole (which server would set)
-                 if (planet.willBecomeBlackHole) { // This flag would be set by server message
-                     // stateModifiers.setPhaseToBlackHole(planet); // Client doesn't make this final call
-                 } else {
-                     // stateModifiers.setPhaseToDestroyed(planet); // Client doesn't make this final call
-                 }
-                 // For now, client doesn't transition to BH/Destroyed on its own, waits for server.
-                 // It just stops the 'isDestroying' phase effects.
-            }
-
-            const globalChunksExist = globalState.chunks.some(chunk => chunk.isActive); 
-            if (globalChunksExist) {
-                 if (planet.chunkGracePeriodFrame <= 0 && !planet.isBlackHole) { 
-                    // stateModifiers.setPhaseToGrace(planet); // Client predicts grace period if chunks exist
-                 }
-             } else {
-                  if (!planet.isBlackHole) { // If not a BH and no chunks, stop timer.
-                    // stateModifiers.stopPhysicsTimer(planet);
-                  }
-             }
-             // The actual transition to BH/Destroyed/Grace will be driven by server messages.
-             // Client-side, we might just stop the `isDestroying` flag to stop core effects.
-             // Planet will visually persist until server confirms its new state.
-        }
-    }
-    // 3. Grace Period -> End (client-side prediction)
-    else if (planet.chunkGracePeriodFrame > 0) {
-        if (planet.chunkGracePeriodFrame >= config.CHUNK_GRACE_PERIOD_DURATION_FRAMES) {
-             // stateModifiers.endGracePeriod(planet); // Client predicts end of grace
-        }
-    }
-}
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_END=updateSinglePlanetDestructionFunction##
-
+/* File: public/js/physics/stateProgression.js */
+// js/physics/stateProgression.js
+
+import * as config from '../config.js'; // For effect parameters and timings
+import * as stateModifiers from '../state/stateModifiers.js'; // For setting visual-only properties like shockwave radius
+
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=stateProgressionFileContent##
+
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=updateDestructionStateFunction##
+/**
+ * Updates client-side animation frame counters for planet destruction effects,
+ * based on the authoritative state flags received from the server.
+ * This function also calculates purely visual effect parameters, like when
+ * a shockwave should reverse direction. It does NOT change core game phases.
+ * @param {object} state - The global game state containing the planets array and settings.
+ */
+export function updateDestructionState(state) {
+    if (!state || !state.settings || !state.planets) return;
+
+    const settings = state.settings;
+
+    state.planets.forEach(planet => {
+        // The server is authoritative for isBreakingUp, isDestroying, etc.
+        // The client's role is to advance local animation counters for smooth visuals
+        // based on the state flags provided by the server.
+
+        if (planet.isBreakingUp) {
+            // If the server just set this flag, initialize the local counter.
+            if (planet.breakupFrame === undefined) planet.breakupFrame = 0;
+            planet.breakupFrame++; // Advance local animation frame
+        } 
+        else if (planet.isDestroying) {
+            // If the server just set this flag, initialize the local counter.
+            if (planet.explosionFrame === undefined) planet.explosionFrame = 0;
+            planet.explosionFrame++; // Advance local animation frame
+
+            // --- MERGED LOGIC: Calculate shockwave reversal for visual effects ---
+            // This is purely visual and safe for the client to calculate.
+            // It determines when the secondary shockwave effect should start imploding.
+            const currentCoreExplosionDuration = settings.coreExplosionDuration;
+            const implosionVisualStartFrame = Math.max(1, currentCoreExplosionDuration - config.CORE_EFFECT_OVERLAP_FRAMES);
+            
+            // Check if it's time to set the reversal radius, and if it hasn't been set yet.
+            if (planet.explosionFrame >= implosionVisualStartFrame && planet.shockwave2ReversalStartRadius === null) {
+                const shockwaveSpeed1 = (planet.originalRadius * config.EFFECT_PARAMETERS.SHOCKWAVES.PRIMARY_SPEED_RADIUS_FACTOR) / Math.max(1, currentCoreExplosionDuration);
+                const shockwaveSpeed2 = shockwaveSpeed1 * config.EFFECT_PARAMETERS.SHOCKWAVES.SECONDARY_SPEED_FACTOR;
+                
+                // Calculate where the shockwave would be at the moment implosion effects start.
+                let radiusAtImplosionStart = planet.originalRadius + shockwaveSpeed2 * Math.max(0, implosionVisualStartFrame - 1);
+                radiusAtImplosionStart = Math.max(planet.originalRadius, radiusAtImplosionStart);
+                
+                // Set this purely visual property on the planet object.
+                stateModifiers.setShockwaveReversalRadius(planet, radiusAtImplosionStart);
+            }
+            // --- END OF MERGED LOGIC ---
+
+        } 
+        else if (planet.isDestroyed || planet.isBlackHole) {
+            // Destruction is complete, no more local frame counting needed for these effects.
+            // The planet state is now final until a world reset.
+        }
+
+        // Advance the general-purpose destruction timer if it's running.
+        // This can be used for effects that persist across phases (like shockwave fading).
+        // This assumes the server initiates the timer by setting the value.
+        if (planet.destructionElapsedTime !== null && typeof planet.destructionElapsedTime === 'number') {
+           planet.destructionElapsedTime++;
+        }
+    });
+}
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_END=updateDestructionStateFunction##
+
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=stateProgressionFileContent##
