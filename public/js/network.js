@@ -23,6 +23,7 @@ const messageList = document.getElementById('message-list');
 let myServerData = null;
 let allPlayersData = {};
 let serverPlanets = [];
+let serverConfig = {}; // **** NEW: To store the server's configuration ****
 
 function initNetwork() {
     console.log("Network.js: Initializing...");
@@ -93,9 +94,11 @@ function setupSocketListeners() {
     });
 
     socket.on('join_success', (data) => {
+        // **** MODIFIED: Receive and store the server config ****
         myServerData = data.myPlayerData;
         allPlayersData = data.allPlayers;
         serverPlanets = data.planets || [];
+        serverConfig = data.serverConfig || {}; // Store the config
 
         addMessageToLog(`Successfully joined as ${myServerData.playerName}.`);
         
@@ -103,7 +106,8 @@ function setupSocketListeners() {
         if (gameContent) gameContent.classList.remove('hidden');
         if (joinGameButton) joinGameButton.disabled = false;
 
-        initializeGame({ planets: serverPlanets }, myServerData);
+        // **** MODIFIED: Pass the server config to the game initializer ****
+        initializeGame({ planets: serverPlanets, config: serverConfig }, myServerData);
     });
 
     socket.on('join_fail', (message) => {
@@ -243,7 +247,8 @@ function setupSocketListeners() {
             clientState.particles = [];
             clientState.bhParticles = [];
         }
-        initializeGame(newWorldData, myServerData);
+        // **** MODIFIED: Pass existing serverConfig during reset ****
+        initializeGame({ planets: newWorldData.planets, config: serverConfig }, myServerData);
     });
 
     socket.on('player_state_reset', (playerDataFromServer) => {

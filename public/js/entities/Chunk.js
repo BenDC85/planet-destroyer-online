@@ -66,8 +66,10 @@ export class Chunk {
         const settings = state.settings;
         const eventHorizonRadius = settings.blackHoleEventHorizonRadius;
         const eventHorizonRadiusSq = eventHorizonRadius * eventHorizonRadius;
-        const pixelsPerMeter = settings.pixelsPerMeter || 1.0;
+        // **** NEW: Use the synchronized settings from the state object ****
+        const pixelsPerMeter = settings.pixelsPerMeter;
         const G = settings.G;
+        const secondsPerFrame = settings.secondsPerFrame;
 
         let totalAccX_pixels = 0;
         let totalAccY_pixels = 0;
@@ -88,13 +90,16 @@ export class Chunk {
             if (planet.isBlackHole) {
                 isNearActiveBH_for_damping = true;
                 if (dist_m > 0) {
+                    // **** NEW: Use synchronized constant ****
                     accelerationMagnitude_mps2 = settings.blackHoleGravitationalConstant / (dist_m * dist_m);
                 }
                 const ehRadius = settings.blackHoleEventHorizonRadius;
+                // **** NEW: Use synchronized constant ****
                 const dragZoneOuterRadius = ehRadius * settings.bhDragZoneMultiplier;
 
                 if (dist_pixels < dragZoneOuterRadius && dist_pixels > ehRadius) {
                     const normalizedDistInZone = (dragZoneOuterRadius - dist_pixels) / (dragZoneOuterRadius - ehRadius);
+                    // **** NEW: Use synchronized constant ****
                     const dragCoeff = settings.bhDragCoefficientMax * normalizedDistInZone;
                     this.vx *= (1 - dragCoeff);
                     this.vy *= (1 - dragCoeff);
@@ -102,17 +107,17 @@ export class Chunk {
                 }
 
             } else if (planet.massKg > 0) {
+                // **** NEW: Use synchronized constant ****
                 const effectiveG = G * settings.planetGravityMultiplier;
                 const M = planet.massKg;
                 const originalRadius_m = (planet.originalRadius_m || planet.originalRadius / pixelsPerMeter);
-                const coreRadius_m = originalRadius_m * config.PLANET_GRAVITY_CORE_RADIUS_FACTOR;
+                // **** NEW: Use synchronized constant ****
+                const coreRadius_m = originalRadius_m * settings.planetGravityCoreRadiusFactor;
 
                 if (dist_m > 0) {
                     if (dist_m >= coreRadius_m) {
-                        // Standard "always outside" formula
                         accelerationMagnitude_mps2 = (effectiveG * M) / (dist_m * dist_m);
                     } else {
-                        // "Soft center" formula
                         const forceAtCoreEdge = (effectiveG * M) / (coreRadius_m * coreRadius_m);
                         accelerationMagnitude_mps2 = forceAtCoreEdge * (dist_m / coreRadius_m);
                     }
@@ -122,7 +127,7 @@ export class Chunk {
             if (accelerationMagnitude_mps2 > 0) {
                 const accX_mps2 = (dx_pixels / dist_pixels) * accelerationMagnitude_mps2;
                 const accY_mps2 = (dy_pixels / dist_pixels) * accelerationMagnitude_mps2;
-                const scaleFactor = pixelsPerMeter * settings.secondsPerFrame * settings.secondsPerFrame;
+                const scaleFactor = pixelsPerMeter * secondsPerFrame * secondsPerFrame;
                 totalAccX_pixels += accX_mps2 * scaleFactor;
                 totalAccY_pixels += accY_mps2 * scaleFactor;
             }
@@ -132,32 +137,26 @@ export class Chunk {
         this.vx += totalAccX_pixels;
         this.vy += totalAccY_pixels;
         
-        // This is a special state that bypasses normal movement
         if (this.isTargetedForRemoval) {
              this.x += this.vx;
              this.y += this.vy;
              for (const planet of planets) {
                  if (!planet.isBlackHole && utils.distanceSq(this, planet) < config.CHUNK_PROXIMITY_REMOVAL_RADIUS_SQ_PX) {
-                     this.isActive = false;
-                     this.life = 0;
-                     return;
+                     this.isActive = false; this.life = 0; return;
                  }
              }
-             return; // End update here for targeted removal
+             return;
          }
 
-        // Apply the predicted velocity to get a new "predicted" position
         this.x += this.vx;
         this.y += this.vy;
         this.angle += this.angularVelocity;
 
         // === STAGE 2: GENTLE CORRECTION TOWARDS SERVER STATE (INTERPOLATION) ===
         if (this.lastServerUpdateTime > 0) {
-            // Gently move current position towards the server's target position
             this.x += (this.targetX - this.x) * this.INTERPOLATION_FACTOR;
             this.y += (this.targetY - this.y) * this.INTERPOLATION_FACTOR;
 
-            // Gently correct angle
             let angleDifference = this.targetAngle - this.angle;
             while (angleDifference > Math.PI) { angleDifference -= (2 * Math.PI); }
             while (angleDifference < -Math.PI) { angleDifference += (2 * Math.PI); }
@@ -166,25 +165,25 @@ export class Chunk {
         }
 
         // === STAGE 3: FINAL CHECKS AND STATE CHANGES ===
-        // Damping (only if not near a black hole)
-        if (!this.persistentDrift && !isNearActiveBH_for_damping) {
-            this.vx *= config.CHUNK_VELOCITY_DAMPING_FACTOR;
-            this.vy *= config.CHUNK_VELOCITY_DAMPING_FACTOR;
-            this.angularVelocity *= config.CHUNK_ANGULAR_VELOCITY_DAMPING_FACTOR;
+        // Damping logic was removed here, which was the correct first step.
+
+        // **** NEW: Add out-of-bounds check to mirror server logic ****
+        const buffer = settings.chunkBoundsBuffer || 200; // Use synchronized value with fallback
+        if (this.x < settings.worldMinX - buffer || this.x > settings.worldMaxX + buffer ||
+            this.y < settings.worldMinY - buffer || this.y > settings.worldMaxY + buffer) {
+            this.isActive = false;
+            this.life = 0;
+            return; // Exit update early
         }
 
-        // Check for absorption by any BH (Event Horizon)
         for (const planet of planets) {
             if (planet.isBlackHole) {
                 if (utils.distanceSq(this, {x: planet.x, y: planet.y}) <= eventHorizonRadiusSq) {
-                    this.isActive = false;
-                    this.life = 0;
-                    return;
+                    this.isActive = false; this.life = 0; return;
                 }
             }
         }
         
-        // Life decay for non-persistent chunks
         if (!this.persistentDrift) {
             this.life -= this.lifeDecayRate;
             if (this.life <= 0) {

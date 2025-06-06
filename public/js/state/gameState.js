@@ -1,61 +1,40 @@
 /* File: public/js/state/gameState.js */
 // js/state/gameState.js
 
-
-
-
-
 import * as config from '../config.js';
-
 import { Ship } from '../entities/Ship.js';
-
 import { getMyPlayerId as getSocketIdForLocalPlayer, getClientSidePlayers } from '../network.js'; 
-
-
-
 
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=gameStateFileContent##
 
-
-
-
-
 let currentState = {};
 
-
-
-
-
+// **** MODIFIED: These are now primarily fallbacks. The server will provide the authoritative values. ****
 const WORLD_MIN_X = -2900; const WORLD_MIN_Y = -2250;
-
 const WORLD_MAX_X = 4800; const WORLD_MAX_Y = 2250;
-
 const WORLD_WIDTH = WORLD_MAX_X - WORLD_MIN_X;
-
 const WORLD_HEIGHT = WORLD_MAX_Y - WORLD_MIN_Y; 
 
-
 const WORLD_CENTER_X = WORLD_MIN_X + WORLD_WIDTH / 2;
-
 const WORLD_CENTER_Y = WORLD_MIN_Y + WORLD_HEIGHT / 2;
 
-
-
-
-
 export const TARGET_CENTER_OFFSET_X = WORLD_CENTER_X - 930;
-
 export const TARGET_CENTER_OFFSET_Y = WORLD_CENTER_Y;
 
 
-
-
-
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=initializeStateFunction##
-
 export function initializeState(canvasWidth, canvasHeight, initialSettings = {}, serverInitialWorldData = null, authoritativeLocalPlayerData = null) { 
     console.log(`--- Initializing Client Game State (Canvas: ${canvasWidth}x${canvasHeight}) ---`);
+
+    // **** NEW: Destructure the server data, including the new config object ****
+    const { planets: serverPlanets, config: serverConfig } = serverInitialWorldData || {};
+
+    if (serverConfig && Object.keys(serverConfig).length > 0) {
+        console.log("   Using authoritative server configuration for physics constants.");
+    } else {
+        console.warn("   Server configuration not received. Falling back to local config.js values. Physics prediction may be inaccurate!");
+    }
 
     if (authoritativeLocalPlayerData) {
         console.log("   Using authoritativeLocalPlayerData for local ship setup:", authoritativeLocalPlayerData);
@@ -63,32 +42,33 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
         console.warn("   authoritativeLocalPlayerData is null during initializeState. Local ship will use defaults.");
     }
 
-
-
-
-
-    const internalDefaultProjectileSpeed = (initialSettings.projectileSpeed ?? config.defaultProjectileSpeed) * config.PROJECTILE_SPEED_HUD_SCALE_FACTOR;
-
-    const internalDefaultPlanetGravityMultiplier = (initialSettings.planetGravityMultiplier ?? config.defaultPlanetGravityMultiplier) * config.PLANET_GRAVITY_HUD_SCALE_FACTOR;
-
-    let bhGravityFactorToUse = config.defaultBHGravityFactor;
-
-    if (initialSettings.bhGravityFactor !== undefined) {
-        bhGravityFactorToUse = initialSettings.bhGravityFactor;
-    }
-    const calculatedBHGravitationalConstant = config.G * config.REFERENCE_PLANET_MASS_FOR_BH_FACTOR *
-                                            internalDefaultPlanetGravityMultiplier * bhGravityFactorToUse;
-
-
-
-
-
+    // **** NEW: Prioritize server-sent config, use local config as a fallback. ****
+    // This ensures client prediction matches server reality.
     const settings = { 
-        worldMinX: WORLD_MIN_X, worldMinY: WORLD_MIN_Y, worldMaxX: WORLD_MAX_X, worldMaxY: WORLD_MAX_Y,
-        worldWidth: WORLD_WIDTH, worldHeight: WORLD_HEIGHT, 
+        // World and Camera (can be sourced from server or client)
+        worldMinX: serverConfig?.worldMinX ?? WORLD_MIN_X,
+        worldMinY: serverConfig?.worldMinY ?? WORLD_MIN_Y,
+        worldMaxX: serverConfig?.worldMaxX ?? WORLD_MAX_X,
+        worldMaxY: serverConfig?.worldMaxY ?? WORLD_MAX_Y,
+        worldWidth: (serverConfig?.worldMaxX - serverConfig?.worldMinX) ?? WORLD_WIDTH,
+        worldHeight: (serverConfig?.worldMaxY - serverConfig?.worldMinY) ?? WORLD_HEIGHT,
         cameraOffsetX: initialSettings.cameraOffsetX ?? TARGET_CENTER_OFFSET_X,
         cameraOffsetY: initialSettings.cameraOffsetY ?? TARGET_CENTER_OFFSET_Y,
         cameraZoom: initialSettings.cameraZoom ?? config.defaultCameraZoom,
+
+        // Critical Physics Constants (MUST match server)
+        G: serverConfig?.G ?? config.G,
+        pixelsPerMeter: serverConfig?.pixelsPerMeter ?? config.PIXELS_PER_METER,
+        secondsPerFrame: serverConfig?.secondsPerFrame ?? config.SECONDS_PER_FRAME,
+        planetGravityMultiplier: serverConfig?.planetGravityMultiplier ?? (config.defaultPlanetGravityMultiplier * config.PLANET_GRAVITY_HUD_SCALE_FACTOR),
+        planetGravityCoreRadiusFactor: serverConfig?.planetGravityCoreRadiusFactor ?? config.PLANET_GRAVITY_CORE_RADIUS_FACTOR,
+        blackHoleGravitationalConstant: serverConfig?.blackHoleGravitationalConstant ?? 0, // Should be calculated, but server value is king
+        bhDragZoneMultiplier: serverConfig?.bhDragZoneMultiplier ?? config.defaultBHDragZoneMultiplier,
+        bhDragCoefficientMax: serverConfig?.bhDragCoefficientMax ?? config.defaultBHDragCoefficientMax,
+        chunkLifespanFrames: serverConfig?.chunkLifespanFrames ?? config.defaultChunkLifespan,
+        chunkBoundsBuffer: serverConfig?.chunkBoundsBuffer ?? 200,
+
+        // HUD-Modifiable Settings (start with defaults, can be changed by user)
         shipZoomAttractFactor: initialSettings.shipZoomAttractFactor ?? config.DEFAULT_SHIP_ZOOM_ATTRACT_FACTOR,
         planetZoomAttractFactor: initialSettings.planetZoomAttractFactor ?? config.DEFAULT_PLANET_ZOOM_ATTRACT_FACTOR,
         planetCount: initialSettings.planetCount ?? config.DEFAULT_PLANET_COUNT, 
@@ -96,7 +76,7 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
         destructionParticleCount: initialSettings.destructionParticleCount ?? config.DEFAULT_DESTRUCTION_PARTICLE_COUNT,
         baseDamageRadius: initialSettings.baseDamageRadius ?? config.defaultBaseDamageRadius,
         persistentChunkDrift: initialSettings.persistentChunkDrift ?? config.defaultPersistentChunkDrift,
-        projectileSpeed: internalDefaultProjectileSpeed,
+        projectileSpeed: (initialSettings.projectileSpeed ?? config.defaultProjectileSpeed) * config.PROJECTILE_SPEED_HUD_SCALE_FACTOR,
         projectileMass: initialSettings.projectileMass ?? config.defaultProjectileMass,
         bhParticleLifeFactor: initialSettings.bhParticleLifeFactor ?? config.defaultBHParticleLifeFactor,
         bhParticleSpeedFactor: initialSettings.bhParticleSpeedFactor ?? config.defaultBHParticleSpeedFactor,
@@ -108,30 +88,19 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
         bhParticleMaxSize: initialSettings.bhParticleMaxSize ?? config.defaultBHParticleMaxSize,
         bhInitialInwardFactor: initialSettings.bhInitialInwardFactor ?? config.defaultBHInitialInwardFactor,
         bhInitialAngularFactor: initialSettings.bhInitialAngularFactor ?? config.defaultBHInitialAngularFactor,
-        bhGravityFactor: bhGravityFactorToUse,
-        blackHoleGravitationalConstant: calculatedBHGravitationalConstant,
+        bhGravityFactor: initialSettings.bhGravityFactor ?? config.defaultBHGravityFactor,
         blackHoleEventHorizonRadius: initialSettings.blackHoleEventHorizonRadius ?? config.DEFAULT_BH_EVENT_HORIZON_RADIUS,
-        bhDragZoneMultiplier: initialSettings.bhDragZoneMultiplier ?? config.defaultBHDragZoneMultiplier,
-        bhDragCoefficientMax: initialSettings.bhDragCoefficientMax ?? config.defaultBHDragCoefficientMax,
-        planetGravityMultiplier: internalDefaultPlanetGravityMultiplier,
-        chunkLifespanFrames: initialSettings.chunkLifespanFrames ?? config.defaultChunkLifespan,
         chunkMaxSpeedThreshold: initialSettings.chunkMaxSpeedThreshold ?? config.defaultChunkMaxSpeed,
         coreExplosionDuration: initialSettings.coreExplosionDuration ?? config.defaultCoreExplosionDuration,
         coreImplosionDuration: initialSettings.coreImplosionDuration ?? config.defaultCoreImplosionDuration,
-        G: config.G,
-        pixelsPerMeter: config.PIXELS_PER_METER,
-        gameFps: config.GAME_FPS,
-        secondsPerFrame: config.SECONDS_PER_FRAME,
         craterScalingC: initialSettings.craterScalingC ?? config.defaultCraterScalingC,
         keToMassEjectEta: initialSettings.keToMassEjectEta ?? config.defaultKEToMassEjectEta,
         bhEnergyMultiplier: initialSettings.bhEnergyMultiplier ?? config.defaultBHEnergyMultiplier,
-        referenceDensity: config.REFERENCE_DENSITY,
-        referenceYieldStrength: config.REFERENCE_YIELD_STRENGTH,
-        referencePlanetMassForBHFactor: config.REFERENCE_PLANET_MASS_FOR_BH_FACTOR,
+
+        // Other settings that are client-only or derived
+        gameFps: config.GAME_FPS,
         clientShipDefaultHealth: 100, 
     };
-
-
 
     const localPlayerShip = new Ship(
         authoritativeLocalPlayerData?.socketId || `local_init_id_${Date.now()}`, 
@@ -149,10 +118,6 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
         localPlayerShip.isAlive = authoritativeLocalPlayerData.isAlive;
     }
 
-
-
-
-
     currentState = {
         settings: settings,
         planets: [], 
@@ -163,12 +128,8 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
         canvasWidth: canvasWidth, canvasHeight: canvasHeight,
     };
 
-
-
-
-
-    if (serverInitialWorldData && serverInitialWorldData.planets) {
-        currentState.planets = serverInitialWorldData.planets.map(serverPlanet => {
+    if (serverPlanets) {
+        currentState.planets = serverPlanets.map(serverPlanet => {
             return { ...serverPlanet }; 
         });
         console.log(`   Populated ${currentState.planets.length} planets from server data.`);
@@ -178,17 +139,9 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
     
     updateRemotePlayerShips(); 
 
-
-
-
-
     console.log(`>>> Client gameState Initialized. Local Ship ID: ${currentState.ship.id}, HP: ${currentState.ship.health}, Alive: ${currentState.ship.isAlive}. Planets loaded: ${currentState.planets.length}`);
 }
-
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=initializeStateFunction##
-
-
-
 
 
 export function updateRemotePlayerShips() {
@@ -197,10 +150,6 @@ export function updateRemotePlayerShips() {
     }
     const networkPlayersData = getClientSidePlayers(); 
     const myActualSocketId = getSocketIdForLocalPlayer(); 
-
-
-
-
 
     for (const socketIdFromServer in networkPlayersData) {
         const playerDataFromServer = networkPlayersData[socketIdFromServer]; 
@@ -212,11 +161,7 @@ export function updateRemotePlayerShips() {
             continue;
         }
 
-
         if (socketIdFromServer === myActualSocketId) {
-            // The local player's state (health, isAlive) is now handled authoritatively
-            // by network events like 'ship_hit', 'ship_destroyed', and 'player_respawned'.
-            // This loop should only focus on remote players.
             continue; 
         }
         
@@ -242,10 +187,8 @@ export function updateRemotePlayerShips() {
                 playerDataFromServer.health,    
                 playerDataFromServer.isAlive    
             );
-            // Ensure name and color are also kept up-to-date if they can change
             currentState.remotePlayers[socketIdFromServer].name = playerDataFromServer.playerName; 
-            currentState.remotePlayers[socketIdFromServer].defaultColor = playerDataFromServer.shipColor; // Update default color too
-             // Only change current color if not in a hit flash
+            currentState.remotePlayers[socketIdFromServer].defaultColor = playerDataFromServer.shipColor;
             if (currentState.remotePlayers[socketIdFromServer].hitFlashTimer <= 0) {
                  currentState.remotePlayers[socketIdFromServer].color = playerDataFromServer.shipColor;
             }
@@ -260,24 +203,12 @@ export function updateRemotePlayerShips() {
     }
 }
 
-
-
-
-
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=getStateFunctions##
-
 export function getState() { return currentState; }
-
 export function getSettings() { return currentState?.settings; } 
-
 export function getMyPlayerData() { 
     return currentState?.ship;
 }
-
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=getStateFunctions##
-
-
-
-
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=gameStateFileContent##
