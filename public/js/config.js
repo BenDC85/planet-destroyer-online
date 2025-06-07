@@ -116,8 +116,11 @@ export const CHUNK_POINT_DISTANCE_FACTOR_MIN = 0.6;
 export const CHUNK_POINT_DISTANCE_FACTOR_RANDOM_RANGE = 0.8;
 export const CHUNK_POINT_ANGLE_INCREMENT_BASE_FACTOR = 1.5;
 export const CHUNK_POINT_ANGLE_RANDOM_FACTOR = 0.5;
-export const CHUNK_VELOCITY_DAMPING_FACTOR = 0.995;
-export const CHUNK_ANGULAR_VELOCITY_DAMPING_FACTOR = 0.99;
+// --- BEGIN MODIFICATION: Removed unused constants (Discrepancy #2) ---
+// The following two constants are no longer used in the client-side code.
+// export const CHUNK_VELOCITY_DAMPING_FACTOR = 0.995;
+// export const CHUNK_ANGULAR_VELOCITY_DAMPING_FACTOR = 0.99;
+// --- END MODIFICATION ---
 
 
 

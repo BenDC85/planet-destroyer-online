@@ -29,11 +29,12 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
 
     // **** NEW: Destructure the server data, including the new config object ****
     const { planets: serverPlanets, config: serverConfig } = serverInitialWorldData || {};
+    const serverPhysics = serverConfig?.physics; // Extract the physics bundle
 
-    if (serverConfig && Object.keys(serverConfig).length > 0) {
-        console.log("   Using authoritative server configuration for physics constants.");
+    if (serverPhysics && Object.keys(serverPhysics).length > 0) {
+        console.log("   Using authoritative server configuration for physics constants:", serverPhysics);
     } else {
-        console.warn("   Server configuration not received. Falling back to local config.js values. Physics prediction may be inaccurate!");
+        console.warn("   Server physics configuration not received or is empty. Falling back to local config.js values. Physics prediction will likely be inaccurate!");
     }
 
     if (authoritativeLocalPlayerData) {
@@ -41,6 +42,26 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
     } else {
         console.warn("   authoritativeLocalPlayerData is null during initializeState. Local ship will use defaults.");
     }
+
+    /**
+     * Safely retrieves a value from the server's physics config.
+     * If the server value is not present, it logs a warning and uses a local fallback.
+     * This makes desync issues due to missing config values obvious during development.
+     * @param {object} serverPhysicsConfig - The physics object from the server.
+     * @param {string} key - The key of the constant to retrieve.
+     * @param {*} localConfigValue - The value from the local config.js (preferred fallback).
+     * @param {*} hardcodedFallback - A hardcoded value to use if localConfigValue is also undefined.
+     * @returns {*} The authoritative value for the setting.
+     */
+    function getSyncedValue(serverPhysicsConfig, key, localConfigValue, hardcodedFallback) {
+        if (serverPhysicsConfig && serverPhysicsConfig[key] !== undefined) {
+            return serverPhysicsConfig[key];
+        }
+        const valueToUse = localConfigValue !== undefined ? localConfigValue : hardcodedFallback;
+        console.warn(`[GameState] Server did not provide physics constant '${key}'. Using local/default fallback of ${valueToUse}. This may cause desync.`);
+        return valueToUse;
+    }
+
 
     // **** NEW: Prioritize server-sent config, use local config as a fallback. ****
     // This ensures client prediction matches server reality.
@@ -57,16 +78,21 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
         cameraZoom: initialSettings.cameraZoom ?? config.defaultCameraZoom,
 
         // Critical Physics Constants (MUST match server)
-        G: serverConfig?.G ?? config.G,
-        pixelsPerMeter: serverConfig?.pixelsPerMeter ?? config.PIXELS_PER_METER,
-        secondsPerFrame: serverConfig?.secondsPerFrame ?? config.SECONDS_PER_FRAME,
-        planetGravityMultiplier: serverConfig?.planetGravityMultiplier ?? (config.defaultPlanetGravityMultiplier * config.PLANET_GRAVITY_HUD_SCALE_FACTOR),
-        planetGravityCoreRadiusFactor: serverConfig?.planetGravityCoreRadiusFactor ?? config.PLANET_GRAVITY_CORE_RADIUS_FACTOR,
-        blackHoleGravitationalConstant: serverConfig?.blackHoleGravitationalConstant ?? 0, // Should be calculated, but server value is king
-        bhDragZoneMultiplier: serverConfig?.bhDragZoneMultiplier ?? config.defaultBHDragZoneMultiplier,
-        bhDragCoefficientMax: serverConfig?.bhDragCoefficientMax ?? config.defaultBHDragCoefficientMax,
-        chunkLifespanFrames: serverConfig?.chunkLifespanFrames ?? config.defaultChunkLifespan,
-        chunkBoundsBuffer: serverConfig?.chunkBoundsBuffer ?? 200,
+        G: getSyncedValue(serverPhysics, 'G', config.G, 6.674e-11),
+        pixelsPerMeter: getSyncedValue(serverPhysics, 'pixelsPerMeter', config.PIXELS_PER_METER, 0.5),
+        secondsPerFrame: getSyncedValue(serverPhysics, 'secondsPerFrame', config.SECONDS_PER_FRAME, 1/60),
+        planetGravityMultiplier: getSyncedValue(serverPhysics, 'planetGravityMultiplier', undefined, config.defaultPlanetGravityMultiplier * config.PLANET_GRAVITY_HUD_SCALE_FACTOR),
+        planetGravityCoreRadiusFactor: getSyncedValue(serverPhysics, 'planetGravityCoreRadiusFactor', config.PLANET_GRAVITY_CORE_RADIUS_FACTOR, 0.20),
+        blackHoleGravitationalConstant: getSyncedValue(serverPhysics, 'blackHoleGravitationalConstant', undefined, 0),
+        bhDragZoneMultiplier: getSyncedValue(serverPhysics, 'bhDragZoneMultiplier', config.defaultBHDragZoneMultiplier, 5.0),
+        bhDragCoefficientMax: getSyncedValue(serverPhysics, 'bhDragCoefficientMax', config.defaultBHDragCoefficientMax, 0.100),
+        chunkLifespanFrames: getSyncedValue(serverPhysics, 'chunkLifespanFrames', config.defaultChunkLifespan, 9999),
+        chunkBoundsBuffer: getSyncedValue(serverPhysics, 'chunkBoundsBuffer', undefined, 200),
+        
+        // --- BEGIN ADDED CODE: Receive new constants to fix desync (Bugs #3 & #4) ---
+        referencePlanetMassForBHFactor: getSyncedValue(serverPhysics, 'referencePlanetMassForBHFactor', config.REFERENCE_PLANET_MASS_FOR_BH_FACTOR, 1e11),
+        projectileBoundsBuffer: getSyncedValue(serverPhysics, 'projectileBoundsBuffer', undefined, 500),
+        // --- END ADDED CODE ---
 
         // HUD-Modifiable Settings (start with defaults, can be changed by user)
         shipZoomAttractFactor: initialSettings.shipZoomAttractFactor ?? config.DEFAULT_SHIP_ZOOM_ATTRACT_FACTOR,

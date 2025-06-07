@@ -93,9 +93,25 @@ const SV_CHUNK_POINT_DISTANCE_FACTOR_RANDOM_RANGE = 0.8;
 const SV_CHUNK_POINT_ANGLE_INCREMENT_BASE_FACTOR = 1.5;
 const SV_CHUNK_POINT_ANGLE_RANDOM_FACTOR = 0.5;
 const SV_CHUNK_BOUNDS_BUFFER = 200;
-const SV_CHUNK_IMPACT_CRATER_SCALE_FACTOR = 1;
-const SV_CHUNK_IMPACT_MASS_EJECT_SCALE_FACTOR = 1;
-const SV_CHUNK_IMPACT_ENERGY_SCALE_FACTOR = 1;
+
+// --- BEGIN: Authoritative Physics Constants Bundle ---
+// This object bundles all critical physics constants that must be synced with the client.
+// This ensures client-side prediction perfectly matches server-side calculations.
+const SV_PHYSICS_CONSTANTS = {
+    G: SV_G,
+    pixelsPerMeter: SV_PIXELS_PER_METER,
+    secondsPerFrame: SV_PROJECTILE_SECONDS_PER_FRAME, // Use one consistent value for all physics
+    planetGravityMultiplier: SV_PLANET_GRAVITY_MULTIPLIER_INTERNAL,
+    planetGravityCoreRadiusFactor: SV_PLANET_GRAVITY_CORE_RADIUS_FACTOR,
+    blackHoleGravitationalConstant: SV_BLACK_HOLE_GRAVITATIONAL_CONSTANT,
+    bhDragZoneMultiplier: SV_BH_DRAG_ZONE_MULTIPLIER,
+    bhDragCoefficientMax: SV_BH_DRAG_COEFFICIENT_MAX,
+    chunkLifespanFrames: SV_CHUNK_LIFESPAN_FRAMES,
+    chunkBoundsBuffer: SV_CHUNK_BOUNDS_BUFFER,
+    referencePlanetMassForBHFactor: SV_REFERENCE_PLANET_MASS_FOR_BH_FACTOR, // FIX: Send to client
+    projectileBoundsBuffer: SV_PROJECTILE_BOUNDS_BUFFER, // FIX: Send to client
+};
+// --- END: Authoritative Physics Constants Bundle ---
 
 // Ship Combat & Spawn Config
 const SV_SHIP_RADIUS_PX = 12.5;
@@ -373,21 +389,13 @@ io.on('connection', (socket) => {
         console.log(`Socket ${socket.id} joined as Player ${players[socket.id].playerNumber} (Name: \"${trimmedPlayerName}\", HP: ${players[socket.id].health}) at (${spawnPoint.x.toFixed(0)}, ${spawnPoint.y.toFixed(0)})`);
 
         // **** NEW: Create and send the authoritative server configuration ****
+        // This object contains all values the client needs to accurately predict physics.
         const serverConfig = {
             worldMinX: SV_WORLD_MIN_X,
             worldMaxX: SV_WORLD_MAX_X,
             worldMinY: SV_WORLD_MIN_Y,
             worldMaxY: SV_WORLD_MAX_Y,
-            pixelsPerMeter: SV_PIXELS_PER_METER,
-            G: SV_G,
-            secondsPerFrame: SV_PROJECTILE_SECONDS_PER_FRAME, // Use one consistent value for all physics
-            planetGravityMultiplier: SV_PLANET_GRAVITY_MULTIPLIER_INTERNAL,
-            planetGravityCoreRadiusFactor: SV_PLANET_GRAVITY_CORE_RADIUS_FACTOR,
-            blackHoleGravitationalConstant: SV_BLACK_HOLE_GRAVITATIONAL_CONSTANT,
-            bhDragZoneMultiplier: SV_BH_DRAG_ZONE_MULTIPLIER,
-            bhDragCoefficientMax: SV_BH_DRAG_COEFFICIENT_MAX,
-            chunkLifespanFrames: SV_CHUNK_LIFESPAN_FRAMES,
-            chunkBoundsBuffer: SV_CHUNK_BOUNDS_BUFFER,
+            physics: SV_PHYSICS_CONSTANTS // Send the entire physics bundle
         };
 
         socket.emit('join_success', {
@@ -852,87 +860,118 @@ function updateServerChunks() {
                 if (planet.isBlackHole || planet.willBecomeBlackHole || planet.isDestroyed || planet.isBreakingUp || planet.isDestroying || planet.massKg <= 0 || planet.radius <= 0) {
                     continue;
                 }
-                const impact = serverFindAccurateImpactPoint({ x: chunk.prevX, y: chunk.prevY }, { x: chunk.x, y: chunk.y }, planet);
-                if (impact) {
-                    chunk.isActive = false;
-                    const impactSpeed_pixels_frame = Math.sqrt(chunk.vx ** 2 + chunk.vy ** 2);
-                    const impactSpeed_mps = Math.max(0.1, impactSpeed_pixels_frame / SV_PIXELS_PER_METER / SV_CHUNK_SECONDS_PER_FRAME);
-                    const impactKE_chunk = 0.5 * chunk.massKg * (impactSpeed_mps ** 2);
-                    const effectiveImpactKE = impactKE_chunk * SV_CHUNK_IMPACT_ENERGY_SCALE_FACTOR;
-                    const massBeforeImpact = planet.massKg;
-                    const radiusMBeforeImpact = planet.originalRadius_m;
-                    const bindingEnergyBeforeImpact = serverCalculateBindingEnergy(massBeforeImpact, radiusMBeforeImpact);
-                    const cumulativeEnergyAfterThisImpact = (planet.cumulativeImpactEnergy || 0) + effectiveImpactKE;
-                    let massEjected_kg = effectiveImpactKE * SV_KE_TO_MASS_EJECT_ETA;
-                    massEjected_kg *= SV_CHUNK_IMPACT_MASS_EJECT_SCALE_FACTOR;
-                    if (SV_VELOCITY_SCALING_BASELINE_MPS > 0 && impactSpeed_mps > 0.01) {
-                        const speedRatioMass = SV_VELOCITY_SCALING_BASELINE_MPS / impactSpeed_mps;
-                        const velocityFactorMass = Math.pow(speedRatioMass, SV_VELOCITY_SCALING_EXPONENT_MASS_EJECT);
-                        massEjected_kg *= Math.max(0.1, Math.min(velocityFactorMass, 10.0));
-                    }
-                    const baseCraterRadius_m_proj_equiv = SV_CRATER_SCALING_C * Math.pow(chunk.massKg, 1 / 3) * Math.pow(impactSpeed_mps, 0.7);
-                    const planetDensity = planet.density;
-                    const planetYield = planet.yieldStrength;
-                    const densityFactor = (SV_REFERENCE_DENSITY_CONFIG > 1e-9) ? (planetDensity / SV_REFERENCE_DENSITY_CONFIG) : 1.0;
-                    const strengthFactor = (SV_REFERENCE_YIELD_STRENGTH_CONFIG > 1e-9) ? (planetYield / SV_REFERENCE_YIELD_STRENGTH_CONFIG) : 1.0;
-                    const combinedModifier = Math.sqrt(densityFactor * strengthFactor);
-                    const clampedModifier = Math.max(0.5, Math.min(2.0, isNaN(combinedModifier) ? 1.0 : combinedModifier));
-                    let finalCraterRadius_m_proj_equiv = baseCraterRadius_m_proj_equiv / clampedModifier;
-                    const finalCraterRadius_m_chunk = finalCraterRadius_m_proj_equiv * SV_CHUNK_IMPACT_CRATER_SCALE_FACTOR;
-                    const craterRadius_pixels_chunk = Math.max(1, finalCraterRadius_m_chunk * SV_PIXELS_PER_METER);
-                    planet.massKg = Math.max(0, planet.massKg - massEjected_kg);
-                    planet.cumulativeImpactEnergy = cumulativeEnergyAfterThisImpact;
-                    planet.radius = planet.originalRadius;
-                    const newCraterByChunk = { x: impact.point.x, y: impact.point.y, radius: craterRadius_pixels_chunk };
-                    planet.craters.push(newCraterByChunk);
-                    const craterArea = Math.PI * craterRadius_pixels_chunk * craterRadius_pixels_chunk;
-                    planet.cumulativeCraterAreaEffect = (planet.cumulativeCraterAreaEffect || 0) + (craterArea / 2.0);
-                    console.log(`[SERVER] Chunk ${chunk.id} DAMAGED planet ${planet.id} at (${impact.point.x.toFixed(0)}, ${impact.point.y.toFixed(0)}). New Mass: ${planet.massKg.toFixed(0)}kg`);
-                    io.emit('chunk_damaged_planet', { chunkId: chunk.id, planetId: planet.id, impactPoint: impact.point, newCrater: newCraterByChunk });
-                    let destructionTriggered = false;
-                    let destructionReason = "";
-                    if (!planet.isBreakingUp && !planet.isDestroying && !planet.isDestroyed) {
-                        const massRatio = planet.originalMassKg > 0 ? (planet.massKg / planet.originalMassKg) : 0;
-                        if (bindingEnergyBeforeImpact > 0 && cumulativeEnergyAfterThisImpact > bindingEnergyBeforeImpact) {
-                            destructionTriggered = true;
-                            destructionReason = `CI Energy (${cumulativeEnergyAfterThisImpact.toExponential(2)} J) > BE (${bindingEnergyBeforeImpact.toExponential(2)} J) after chunk hit.`;
+
+                // --- BEGIN MODIFICATION: Added AABB check for performance (Bug #1) ---
+                const chunkMinX = Math.min(chunk.prevX, chunk.x) - chunk.size;
+                const chunkMaxX = Math.max(chunk.prevX, chunk.x) + chunk.size;
+                const chunkMinY = Math.min(chunk.prevY, chunk.y) - chunk.size;
+                const chunkMaxY = Math.max(chunk.prevY, chunk.y) + chunk.size;
+
+                const planetBounds = {
+                    minX: planet.x - planet.originalRadius,
+                    maxX: planet.x + planet.originalRadius,
+                    minY: planet.y - planet.originalRadius,
+                    maxY: planet.y + planet.originalRadius,
+                };
+
+                // Only do the expensive check if the bounding boxes overlap
+                if (!(chunkMaxX < planetBounds.minX || chunkMinX > planetBounds.maxX || chunkMaxY < planetBounds.minY || chunkMinY > planetBounds.maxY)) {
+                // --- END MODIFICATION ---
+
+                    const impact = serverFindAccurateImpactPoint({ x: chunk.prevX, y: chunk.prevY }, { x: chunk.x, y: chunk.y }, planet);
+                    if (impact) {
+                        chunk.isActive = false;
+                        const impactSpeed_pixels_frame = Math.sqrt(chunk.vx ** 2 + chunk.vy ** 2);
+                        const impactSpeed_mps = Math.max(0.1, impactSpeed_pixels_frame / SV_PIXELS_PER_METER / SV_CHUNK_SECONDS_PER_FRAME);
+                        const impactKE_chunk = 0.5 * chunk.massKg * (impactSpeed_mps ** 2);
+
+                        // --- BEGIN MODIFICATION: Removed redundant scale factors (Discrepancy #1) ---
+                        const effectiveImpactKE = impactKE_chunk;
+                        // --- END MODIFICATION ---
+
+                        const massBeforeImpact = planet.massKg;
+                        const radiusMBeforeImpact = planet.originalRadius_m;
+                        const bindingEnergyBeforeImpact = serverCalculateBindingEnergy(massBeforeImpact, radiusMBeforeImpact);
+                        const cumulativeEnergyAfterThisImpact = (planet.cumulativeImpactEnergy || 0) + effectiveImpactKE;
+
+                        // --- BEGIN MODIFICATION: Removed redundant scale factors (Discrepancy #1) ---
+                        let massEjected_kg = effectiveImpactKE * SV_KE_TO_MASS_EJECT_ETA;
+                        // --- END MODIFICATION ---
+
+                        if (SV_VELOCITY_SCALING_BASELINE_MPS > 0 && impactSpeed_mps > 0.01) {
+                            const speedRatioMass = SV_VELOCITY_SCALING_BASELINE_MPS / impactSpeed_mps;
+                            const velocityFactorMass = Math.pow(speedRatioMass, SV_VELOCITY_SCALING_EXPONENT_MASS_EJECT);
+                            massEjected_kg *= Math.max(0.1, Math.min(velocityFactorMass, 10.0));
                         }
-                        if (!destructionTriggered && planet.originalMassKg > 0 && massRatio < SV_MASS_LOSS_DESTRUCTION_THRESHOLD_FACTOR) {
-                            destructionTriggered = true;
-                            destructionReason = `Mass Ratio (${massRatio.toFixed(3)}) < Thresh (${SV_MASS_LOSS_DESTRUCTION_THRESHOLD_FACTOR}) after chunk hit.`;
-                        }
-                        if (!destructionTriggered && finalCraterRadius_m_chunk > radiusMBeforeImpact && massBeforeImpact > 0) {
-                            if (finalCraterRadius_m_chunk > radiusMBeforeImpact * 1.1 || radiusMBeforeImpact < 1.0) {
+                        const baseCraterRadius_m_proj_equiv = SV_CRATER_SCALING_C * Math.pow(chunk.massKg, 1 / 3) * Math.pow(impactSpeed_mps, 0.7);
+                        const planetDensity = planet.density;
+                        const planetYield = planet.yieldStrength;
+                        const densityFactor = (SV_REFERENCE_DENSITY_CONFIG > 1e-9) ? (planetDensity / SV_REFERENCE_DENSITY_CONFIG) : 1.0;
+                        const strengthFactor = (SV_REFERENCE_YIELD_STRENGTH_CONFIG > 1e-9) ? (planetYield / SV_REFERENCE_YIELD_STRENGTH_CONFIG) : 1.0;
+                        const combinedModifier = Math.sqrt(densityFactor * strengthFactor);
+                        const clampedModifier = Math.max(0.5, Math.min(2.0, isNaN(combinedModifier) ? 1.0 : combinedModifier));
+                        let finalCraterRadius_m_proj_equiv = baseCraterRadius_m_proj_equiv / clampedModifier;
+
+                        // --- BEGIN MODIFICATION: Removed redundant scale factors (Discrepancy #1) ---
+                        const finalCraterRadius_m_chunk = finalCraterRadius_m_proj_equiv;
+                        // --- END MODIFICATION ---
+
+                        const craterRadius_pixels_chunk = Math.max(1, finalCraterRadius_m_chunk * SV_PIXELS_PER_METER);
+                        planet.massKg = Math.max(0, planet.massKg - massEjected_kg);
+                        planet.cumulativeImpactEnergy = cumulativeEnergyAfterThisImpact;
+                        planet.radius = planet.originalRadius;
+                        const newCraterByChunk = { x: impact.point.x, y: impact.point.y, radius: craterRadius_pixels_chunk };
+                        planet.craters.push(newCraterByChunk);
+                        const craterArea = Math.PI * craterRadius_pixels_chunk * craterRadius_pixels_chunk;
+                        planet.cumulativeCraterAreaEffect = (planet.cumulativeCraterAreaEffect || 0) + (craterArea / 2.0);
+                        console.log(`[SERVER] Chunk ${chunk.id} DAMAGED planet ${planet.id} at (${impact.point.x.toFixed(0)}, ${impact.point.y.toFixed(0)}). New Mass: ${planet.massKg.toFixed(0)}kg`);
+                        io.emit('chunk_damaged_planet', { chunkId: chunk.id, planetId: planet.id, impactPoint: impact.point, newCrater: newCraterByChunk });
+                        let destructionTriggered = false;
+                        let destructionReason = "";
+                        if (!planet.isBreakingUp && !planet.isDestroying && !planet.isDestroyed) {
+                            const massRatio = planet.originalMassKg > 0 ? (planet.massKg / planet.originalMassKg) : 0;
+                            if (bindingEnergyBeforeImpact > 0 && cumulativeEnergyAfterThisImpact > bindingEnergyBeforeImpact) {
                                 destructionTriggered = true;
-                                destructionReason = `Large chunk crater (Crater Radius: ${finalCraterRadius_m_chunk.toFixed(1)}m vs Planet Radius: ${radiusMBeforeImpact.toFixed(1)}m).`;
+                                destructionReason = `CI Energy (${cumulativeEnergyAfterThisImpact.toExponential(2)} J) > BE (${bindingEnergyBeforeImpact.toExponential(2)} J) after chunk hit.`;
+                            }
+                            if (!destructionTriggered && planet.originalMassKg > 0 && massRatio < SV_MASS_LOSS_DESTRUCTION_THRESHOLD_FACTOR) {
+                                destructionTriggered = true;
+                                destructionReason = `Mass Ratio (${massRatio.toFixed(3)}) < Thresh (${SV_MASS_LOSS_DESTRUCTION_THRESHOLD_FACTOR}) after chunk hit.`;
+                            }
+                            if (!destructionTriggered && finalCraterRadius_m_chunk > radiusMBeforeImpact && massBeforeImpact > 0) {
+                                if (finalCraterRadius_m_chunk > radiusMBeforeImpact * 1.1 || radiusMBeforeImpact < 1.0) {
+                                    destructionTriggered = true;
+                                    destructionReason = `Large chunk crater (Crater Radius: ${finalCraterRadius_m_chunk.toFixed(1)}m vs Planet Radius: ${radiusMBeforeImpact.toFixed(1)}m).`;
+                                }
+                            }
+                            const massLostEnoughForCraterCount = massRatio < SV_MIN_MASS_LOSS_FOR_CRATER_COUNT_DESTRUCTION;
+                            if (!destructionTriggered && planet.craters.length > SV_MAX_CRATER_COUNT_FOR_DESTRUCTION_THRESHOLD && massLostEnoughForCraterCount) {
+                                destructionTriggered = true;
+                                destructionReason = `Excessive craters (${planet.craters.length}) + mass loss (ratio: ${massRatio.toFixed(3)}) after chunk hit.`;
+                            }
+                            if (!destructionTriggered && planet.originalSurfaceArea > 0 && (planet.cumulativeCraterAreaEffect / planet.originalSurfaceArea) > SV_VISUAL_HOLLOWNESS_DESTRUCTION_THRESHOLD) {
+                                destructionTriggered = true;
+                                destructionReason = `Cumulative crater area (${(planet.cumulativeCraterAreaEffect / planet.originalSurfaceArea * 100).toFixed(1)}%) > Hollowness Thresh after chunk hit.`;
+                            }
+                            if (destructionTriggered) {
+                                planet.isBreakingUp = true;
+                                planet.breakupFrame = 0;
+                                planet.destructionElapsedTime = 0;
+                                planet.lastImpactPoint = { x: impact.point.x, y: impact.point.y };
+                                if (bindingEnergyBeforeImpact > 0 && cumulativeEnergyAfterThisImpact > (SV_BH_ENERGY_MULTIPLIER * bindingEnergyBeforeImpact)) {
+                                    planet.willBecomeBlackHole = true;
+                                } else {
+                                    planet.willBecomeBlackHole = false;
+                                }
+                                console.log(`[SERVER] Planet ${planet.id} BREAKING UP due to chunk impact. Reason: ${destructionReason}. WillBecomeBH: ${planet.willBecomeBlackHole}`);
+                                generateServerChunks(planet, impact.point);
                             }
                         }
-                        const massLostEnoughForCraterCount = massRatio < SV_MIN_MASS_LOSS_FOR_CRATER_COUNT_DESTRUCTION;
-                        if (!destructionTriggered && planet.craters.length > SV_MAX_CRATER_COUNT_FOR_DESTRUCTION_THRESHOLD && massLostEnoughForCraterCount) {
-                            destructionTriggered = true;
-                            destructionReason = `Excessive craters (${planet.craters.length}) + mass loss (ratio: ${massRatio.toFixed(3)}) after chunk hit.`;
-                        }
-                        if (!destructionTriggered && planet.originalSurfaceArea > 0 && (planet.cumulativeCraterAreaEffect / planet.originalSurfaceArea) > SV_VISUAL_HOLLOWNESS_DESTRUCTION_THRESHOLD) {
-                            destructionTriggered = true;
-                            destructionReason = `Cumulative crater area (${(planet.cumulativeCraterAreaEffect / planet.originalSurfaceArea * 100).toFixed(1)}%) > Hollowness Thresh after chunk hit.`;
-                        }
-                        if (destructionTriggered) {
-                            planet.isBreakingUp = true;
-                            planet.breakupFrame = 0;
-                            planet.destructionElapsedTime = 0;
-                            planet.lastImpactPoint = { x: impact.point.x, y: impact.point.y };
-                            if (bindingEnergyBeforeImpact > 0 && cumulativeEnergyAfterThisImpact > (SV_BH_ENERGY_MULTIPLIER * bindingEnergyBeforeImpact)) {
-                                planet.willBecomeBlackHole = true;
-                            } else {
-                                planet.willBecomeBlackHole = false;
-                            }
-                            console.log(`[SERVER] Planet ${planet.id} BREAKING UP due to chunk impact. Reason: ${destructionReason}. WillBecomeBH: ${planet.willBecomeBlackHole}`);
-                            generateServerChunks(planet, impact.point);
-                        }
+                        io.emit('planet_update', planet);
+                        break;
                     }
-                    io.emit('planet_update', planet);
-                    break;
-                }
+
+                } // Closing brace for the new AABB check
             }
         }
         if (chunk.isActive) {

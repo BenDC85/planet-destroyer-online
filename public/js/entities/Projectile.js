@@ -204,7 +204,9 @@ export class Projectile {
                 const effectiveG = G * settings.planetGravityMultiplier;
                 const M = planet.massKg;
                 const originalRadius_m = planet.originalRadius / pixelsPerMeter;
-                const coreRadius_m = originalRadius_m * config.PLANET_GRAVITY_CORE_RADIUS_FACTOR;
+                // --- BEGIN MODIFICATION: Use server-synced value for core radius (Bug #2) ---
+                const coreRadius_m = originalRadius_m * settings.planetGravityCoreRadiusFactor;
+                // --- END MODIFICATION ---
 
                 if (dist_m > 0) {
                     if (dist_m >= coreRadius_m) {
@@ -241,7 +243,9 @@ export class Projectile {
 
 
 
-        const buffer = config.SV_PROJECTILE_BOUNDS_BUFFER || 1000; 
+        // --- BEGIN MODIFICATION: Use server-synced value for bounds buffer (Bug #3) ---
+        const buffer = settings.projectileBoundsBuffer || 500; // Use synchronized value with a reasonable fallback
+        // --- END MODIFICATION ---
         if (this.x < settings.worldMinX - buffer || this.x > settings.worldMaxX + buffer ||
             this.y < settings.worldMinY - buffer || this.y > settings.worldMaxY + buffer) {
             if (this.isActive) {
