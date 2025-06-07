@@ -5,7 +5,6 @@
 import * as config from '../config.js';
 import * as utils from '../utils.js';
 import { getState, updateRemotePlayerShips } from './gameState.js'; 
-// Chunk is no longer directly instantiated by generateInitialDebris here
 // Particle is imported for addParticleToState
 import { Particle } from '../entities/Particle.js'; 
 import { sendProjectileFireRequest } from '../network.js'; 
@@ -56,14 +55,42 @@ export function adjustShipAngle(deltaAngle) {
 }
 
 
+/**
+ * fireShipProjectile - REFACTORED for Client-Side Prediction
+ * This function now has two roles:
+ * 1. It prepares the projectile data and sends a request to the server.
+ * 2. It returns the complete data for a "ghost" projectile so the client can render it instantly.
+ */
 export function fireShipProjectile() {
     const state = getState();
-    if (state && state.ship && state.ship.isLocalPlayer) {
-        const projectileDataForServer = state.ship.fire(); 
-        if (projectileDataForServer) {
-            sendProjectileFireRequest(projectileDataForServer);
-        }
+    if (!state || !state.ship || !state.ship.isLocalPlayer) {
+        return null;
     }
+
+    const projectileDataForServer = state.ship.fire(); 
+    if (projectileDataForServer) {
+        // --- BEGIN MODIFICATION: Generate a temporary ID for the ghost projectile ---
+        const tempId = `temp_proj_${Date.now()}_${Math.random()}`;
+        projectileDataForServer.tempId = tempId;
+        // --- END MODIFICATION ---
+
+        sendProjectileFireRequest(projectileDataForServer);
+
+        // --- BEGIN MODIFICATION: Return the full data for immediate client-side creation ---
+        return {
+            id: tempId, // Use the temporary ID
+            ownerShipId: state.ship.id,
+            x: projectileDataForServer.startX,
+            y: projectileDataForServer.startY,
+            angle: projectileDataForServer.angle,
+            initialSpeedInternalPxFrame: projectileDataForServer.initialSpeedInternalPxFrame,
+            color: config.PROJECTILE_COLOR,
+            massKg: projectileDataForServer.massKg,
+            isGhost: true // A flag to identify this as a client-predicted projectile
+        };
+        // --- END MODIFICATION ---
+    }
+    return null;
 }
 
 
@@ -204,7 +231,9 @@ function recalculateBHGravitationalConstant(settings) {
     settings.blackHoleGravitationalConstant = settings.G * settings.referencePlanetMassForBHFactor * settings.planetGravityMultiplier * settings.bhGravityFactor;
 }
 export function setBlackHoleEventHorizonRadius(value) {
-    const state = getState(); if (state?.settings) { const numValue = parseFloat(value); state.settings.blackHoleEventHorizonRadius = Math.max(config.minBHEventHorizon, isNaN(numValue) ? config.DEFAULT_BH_EVENT_HORIZON_RADIUS : numValue); }
+    // This function is now deprecated. The server dictates the event horizon radius.
+    // It is kept here to prevent errors if old UI elements still call it, but it does nothing.
+    // The UI elements should be removed.
 }
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=setupSettingsModifiers##
 

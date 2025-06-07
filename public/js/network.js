@@ -23,7 +23,7 @@ const messageList = document.getElementById('message-list');
 let myServerData = null;
 let allPlayersData = {};
 let serverPlanets = [];
-let serverConfig = {}; // **** NEW: To store the server's configuration ****
+let serverConfig = {}; 
 
 function initNetwork() {
     console.log("Network.js: Initializing...");
@@ -94,11 +94,10 @@ function setupSocketListeners() {
     });
 
     socket.on('join_success', (data) => {
-        // **** MODIFIED: Receive and store the server config ****
         myServerData = data.myPlayerData;
         allPlayersData = data.allPlayers;
         serverPlanets = data.planets || [];
-        serverConfig = data.serverConfig || {}; // Store the config
+        serverConfig = data.serverConfig || {}; 
 
         addMessageToLog(`Successfully joined as ${myServerData.playerName}.`);
         
@@ -106,7 +105,6 @@ function setupSocketListeners() {
         if (gameContent) gameContent.classList.remove('hidden');
         if (joinGameButton) joinGameButton.disabled = false;
 
-        // **** MODIFIED: Pass the server config to the game initializer ****
         initializeGame({ planets: serverPlanets, config: serverConfig }, myServerData);
     });
 
@@ -156,17 +154,38 @@ function setupSocketListeners() {
     });
 
     socket.on('new_projectile_created', (projectileDataFromServer) => {
-        const newProj = new Projectile(
-            projectileDataFromServer.id,
-            projectileDataFromServer.ownerShipId,
-            projectileDataFromServer.x,
-            projectileDataFromServer.y,
-            projectileDataFromServer.angle,
-            projectileDataFromServer.initialSpeedInternalPxFrame,
-            config.PROJECTILE_COLOR,
-            projectileDataFromServer.massKg
-        );
-        addProjectile(newProj);
+        const clientState = getState();
+        if (!clientState) return;
+
+        // --- BEGIN MODIFICATION: Handle ghost projectile promotion ---
+        let projectileToUpdate = null;
+        // Check if this creation message is for a projectile we already predicted
+        if (projectileDataFromServer.ownerShipId === getMyPlayerId() && projectileDataFromServer.tempId) {
+            projectileToUpdate = clientState.projectiles.find(p => p.id === projectileDataFromServer.tempId);
+        }
+
+        if (projectileToUpdate) {
+            // "Promote" the ghost projectile to a real, server-confirmed one
+            projectileToUpdate.id = projectileDataFromServer.id; // Update to the permanent server ID
+            projectileToUpdate.isGhost = false;
+            // The server's initial position/velocity is the most accurate, so we apply it
+            projectileToUpdate.applyServerUpdate(projectileDataFromServer);
+            console.log(`[NETWORK] Promoted ghost projectile ${projectileDataFromServer.tempId} to ${projectileDataFromServer.id}`);
+        } else {
+            // This is a projectile from another player, create it fresh
+            const newProj = new Projectile(
+                projectileDataFromServer.id,
+                projectileDataFromServer.ownerShipId,
+                projectileDataFromServer.x,
+                projectileDataFromServer.y,
+                projectileDataFromServer.angle,
+                projectileDataFromServer.initialSpeedInternalPxFrame,
+                config.PROJECTILE_COLOR,
+                projectileDataFromServer.massKg
+            );
+            addProjectile(newProj);
+        }
+        // --- END MODIFICATION ---
     });
 
     socket.on('projectiles_update', (serverProjectilesData) => {
@@ -223,15 +242,12 @@ function setupSocketListeners() {
         serverChunksData.forEach(serverChunkData => {
             const clientChunk = clientState.chunks.find(c => c.id === serverChunkData.id);
             if (clientChunk) {
-                // --- BEGIN MODIFICATION: Use the new dedicated update method ---
                 clientChunk.applyServerUpdate(serverChunkData);
-                // --- END MODIFICATION ---
             }
         });
 
         clientState.chunks = clientState.chunks.filter(c => {
             const serverVersion = serverChunksData.find(sc => sc.id === c.id);
-            // Keep the chunk if the server says it's active, OR if it's inactive but still has visual lifetime left
             return serverVersion ? serverVersion.isActive : (c.isActive && c.life > 0);
         });
     });
@@ -246,7 +262,6 @@ function setupSocketListeners() {
             clientState.particles = [];
             clientState.bhParticles = [];
         }
-        // **** MODIFIED: Pass existing serverConfig during reset ****
         initializeGame({ planets: newWorldData.planets, config: serverConfig }, myServerData);
     });
 

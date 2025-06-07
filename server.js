@@ -95,12 +95,10 @@ const SV_CHUNK_POINT_ANGLE_RANDOM_FACTOR = 0.5;
 const SV_CHUNK_BOUNDS_BUFFER = 200;
 
 // --- BEGIN: Authoritative Physics Constants Bundle ---
-// This object bundles all critical physics constants that must be synced with the client.
-// This ensures client-side prediction perfectly matches server-side calculations.
 const SV_PHYSICS_CONSTANTS = {
     G: SV_G,
     pixelsPerMeter: SV_PIXELS_PER_METER,
-    secondsPerFrame: SV_PROJECTILE_SECONDS_PER_FRAME, // Use one consistent value for all physics
+    secondsPerFrame: SV_PROJECTILE_SECONDS_PER_FRAME, 
     planetGravityMultiplier: SV_PLANET_GRAVITY_MULTIPLIER_INTERNAL,
     planetGravityCoreRadiusFactor: SV_PLANET_GRAVITY_CORE_RADIUS_FACTOR,
     blackHoleGravitationalConstant: SV_BLACK_HOLE_GRAVITATIONAL_CONSTANT,
@@ -151,7 +149,7 @@ let serverChunks = [];
 let nextServerChunkId = 0;
 
 // =================================================================================
-// START OF FIXED CODE BLOCK
+// START OF UTILITY FUNCTIONS
 // =================================================================================
 
 function getPlanetDisplayName(planet) {
@@ -331,7 +329,7 @@ function generatePlanetsOnServer(numPlanetsOverride = null) {
 }
 
 // =================================================================================
-// END OF FIXED CODE BLOCK
+// END OF UTILITY FUNCTIONS
 // =================================================================================
 
 generatePlanetsOnServer();
@@ -389,21 +387,19 @@ io.on('connection', (socket) => {
 
         console.log(`Socket ${socket.id} joined as Player ${players[socket.id].playerNumber} (Name: \"${trimmedPlayerName}\", HP: ${players[socket.id].health}) at (${spawnPoint.x.toFixed(0)}, ${spawnPoint.y.toFixed(0)})`);
 
-        // **** NEW: Create and send the authoritative server configuration ****
-        // This object contains all values the client needs to accurately predict physics.
         const serverConfig = {
             worldMinX: SV_WORLD_MIN_X,
             worldMaxX: SV_WORLD_MAX_X,
             worldMinY: SV_WORLD_MIN_Y,
             worldMaxY: SV_WORLD_MAX_Y,
-            physics: SV_PHYSICS_CONSTANTS // Send the entire physics bundle
+            physics: SV_PHYSICS_CONSTANTS 
         };
 
         socket.emit('join_success', {
             myPlayerData: players[socket.id],
             allPlayers: players,
             planets: serverPlanetsState,
-            serverConfig: serverConfig // **** MODIFIED: Send config to client ****
+            serverConfig: serverConfig
         });
 
         socket.broadcast.emit('player_joined', players[socket.id]);
@@ -425,10 +421,13 @@ io.on('connection', (socket) => {
         if (!player || !player.isAlive) {
             return;
         }
-        if (!projectileData || typeof projectileData.startX !== 'number' || typeof projectileData.massKg !== 'number') {
+        // --- BEGIN MODIFICATION: Added validation for tempId ---
+        if (!projectileData || typeof projectileData.startX !== 'number' || typeof projectileData.massKg !== 'number' || !projectileData.tempId) {
             console.warn(`[SERVER] Invalid projectile data from ${player.playerName} (${socket.id})`);
             return;
         }
+        // --- END MODIFICATION ---
+
         const FIRE_RATE_MS = 160;
         const now = Date.now();
         if (now - player.lastFireTime < FIRE_RATE_MS) {
@@ -440,6 +439,7 @@ io.on('connection', (socket) => {
         const initialSpeed = projectileData.initialSpeedInternalPxFrame;
         const vx = Math.cos(projectileData.angle) * initialSpeed;
         const vy = Math.sin(projectileData.angle) * initialSpeed;
+        
         const newServerProjectile = {
             id: serverProjId,
             ownerShipId: player.socketId,
@@ -454,7 +454,11 @@ io.on('connection', (socket) => {
             massKg: validatedMass,
             isActive: true,
             framesAlive: 0,
+            // --- BEGIN MODIFICATION: Include tempId in the creation broadcast ---
+            tempId: projectileData.tempId 
+            // --- END MODIFICATION ---
         };
+
         serverProjectiles.push(newServerProjectile);
         io.emit('new_projectile_created', newServerProjectile);
     });
@@ -553,7 +557,6 @@ function generateServerChunks(planet, impactPoint) {
             const spinVx = -Math.sin(chunkAngle) * spinMagnitude * spinDirection;
             const spinVy = Math.cos(chunkAngle) * spinMagnitude * spinDirection;
 
-            // **** MODIFIED: Removed prevX, prevY, framesAlive from the payload ****
             const newChunk = {
                 id: `srv_chk_${nextServerChunkId++}`,
                 originPlanetId: planet.id,
@@ -861,8 +864,6 @@ function updateServerChunks() {
                 if (planet.isBlackHole || planet.willBecomeBlackHole || planet.isDestroyed || planet.isBreakingUp || planet.isDestroying || planet.massKg <= 0 || planet.radius <= 0) {
                     continue;
                 }
-
-                // --- BEGIN MODIFICATION: Added AABB check for performance (Bug #1) ---
                 const chunkMinX = Math.min(chunk.prevX, chunk.x) - chunk.size;
                 const chunkMaxX = Math.max(chunk.prevX, chunk.x) + chunk.size;
                 const chunkMinY = Math.min(chunk.prevY, chunk.y) - chunk.size;
@@ -874,10 +875,7 @@ function updateServerChunks() {
                     minY: planet.y - planet.originalRadius,
                     maxY: planet.y + planet.originalRadius,
                 };
-
-                // Only do the expensive check if the bounding boxes overlap
                 if (!(chunkMaxX < planetBounds.minX || chunkMinX > planetBounds.maxX || chunkMaxY < planetBounds.minY || chunkMinY > planetBounds.maxY)) {
-                // --- END MODIFICATION ---
 
                     const impact = serverFindAccurateImpactPoint({ x: chunk.prevX, y: chunk.prevY }, { x: chunk.x, y: chunk.y }, planet);
                     if (impact) {
@@ -963,7 +961,7 @@ function updateServerChunks() {
                         break;
                     }
 
-                } // Closing brace for the new AABB check
+                } 
             }
         }
         if (chunk.isActive) {
@@ -1064,9 +1062,7 @@ setInterval(() => {
         const projectileUpdates = serverProjectiles.map(p => ({ id: p.id, x: p.x, y: p.y, vx: p.vx, vy: p.vy, isActive: p.isActive }));
         io.emit('projectiles_update', projectileUpdates);
         if (serverChunks.length > 0) {
-            // --- BEGIN MODIFICATION: Added vx and vy to chunk updates ---
             const chunkUpdates = serverChunks.map(c => ({ id: c.id, x: c.x, y: c.y, vx: c.vx, vy: c.vy, angle: c.angle, isActive: c.isActive }));
-            // --- END MODIFICATION ---
             io.emit('chunks_update', chunkUpdates);
         } else {
             io.emit('chunks_update', []);
