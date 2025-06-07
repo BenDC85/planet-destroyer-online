@@ -108,8 +108,9 @@ const SV_PHYSICS_CONSTANTS = {
     bhDragCoefficientMax: SV_BH_DRAG_COEFFICIENT_MAX,
     chunkLifespanFrames: SV_CHUNK_LIFESPAN_FRAMES,
     chunkBoundsBuffer: SV_CHUNK_BOUNDS_BUFFER,
-    referencePlanetMassForBHFactor: SV_REFERENCE_PLANET_MASS_FOR_BH_FACTOR, // FIX: Send to client
-    projectileBoundsBuffer: SV_PROJECTILE_BOUNDS_BUFFER, // FIX: Send to client
+    referencePlanetMassForBHFactor: SV_REFERENCE_PLANET_MASS_FOR_BH_FACTOR,
+    projectileBoundsBuffer: SV_PROJECTILE_BOUNDS_BUFFER,
+    bhEventHorizonRadiusPx: SV_BH_EVENT_HORIZON_RADIUS_PX,
 };
 // --- END: Authoritative Physics Constants Bundle ---
 
@@ -884,19 +885,13 @@ function updateServerChunks() {
                         const impactSpeed_pixels_frame = Math.sqrt(chunk.vx ** 2 + chunk.vy ** 2);
                         const impactSpeed_mps = Math.max(0.1, impactSpeed_pixels_frame / SV_PIXELS_PER_METER / SV_CHUNK_SECONDS_PER_FRAME);
                         const impactKE_chunk = 0.5 * chunk.massKg * (impactSpeed_mps ** 2);
-
-                        // --- BEGIN MODIFICATION: Removed redundant scale factors (Discrepancy #1) ---
                         const effectiveImpactKE = impactKE_chunk;
-                        // --- END MODIFICATION ---
 
                         const massBeforeImpact = planet.massKg;
                         const radiusMBeforeImpact = planet.originalRadius_m;
                         const bindingEnergyBeforeImpact = serverCalculateBindingEnergy(massBeforeImpact, radiusMBeforeImpact);
                         const cumulativeEnergyAfterThisImpact = (planet.cumulativeImpactEnergy || 0) + effectiveImpactKE;
-
-                        // --- BEGIN MODIFICATION: Removed redundant scale factors (Discrepancy #1) ---
                         let massEjected_kg = effectiveImpactKE * SV_KE_TO_MASS_EJECT_ETA;
-                        // --- END MODIFICATION ---
 
                         if (SV_VELOCITY_SCALING_BASELINE_MPS > 0 && impactSpeed_mps > 0.01) {
                             const speedRatioMass = SV_VELOCITY_SCALING_BASELINE_MPS / impactSpeed_mps;
@@ -911,10 +906,7 @@ function updateServerChunks() {
                         const combinedModifier = Math.sqrt(densityFactor * strengthFactor);
                         const clampedModifier = Math.max(0.5, Math.min(2.0, isNaN(combinedModifier) ? 1.0 : combinedModifier));
                         let finalCraterRadius_m_proj_equiv = baseCraterRadius_m_proj_equiv / clampedModifier;
-
-                        // --- BEGIN MODIFICATION: Removed redundant scale factors (Discrepancy #1) ---
                         const finalCraterRadius_m_chunk = finalCraterRadius_m_proj_equiv;
-                        // --- END MODIFICATION ---
 
                         const craterRadius_pixels_chunk = Math.max(1, finalCraterRadius_m_chunk * SV_PIXELS_PER_METER);
                         planet.massKg = Math.max(0, planet.massKg - massEjected_kg);
@@ -1072,7 +1064,9 @@ setInterval(() => {
         const projectileUpdates = serverProjectiles.map(p => ({ id: p.id, x: p.x, y: p.y, vx: p.vx, vy: p.vy, isActive: p.isActive }));
         io.emit('projectiles_update', projectileUpdates);
         if (serverChunks.length > 0) {
-            const chunkUpdates = serverChunks.map(c => ({ id: c.id, x: c.x, y: c.y, angle: c.angle, isActive: c.isActive }));
+            // --- BEGIN MODIFICATION: Added vx and vy to chunk updates ---
+            const chunkUpdates = serverChunks.map(c => ({ id: c.id, x: c.x, y: c.y, vx: c.vx, vy: c.vy, angle: c.angle, isActive: c.isActive }));
+            // --- END MODIFICATION ---
             io.emit('chunks_update', chunkUpdates);
         } else {
             io.emit('chunks_update', []);

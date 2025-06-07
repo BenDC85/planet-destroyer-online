@@ -203,10 +203,13 @@ export class Projectile {
             } else if (planet.massKg > 0) { // Normal planet gravity
                 const effectiveG = G * settings.planetGravityMultiplier;
                 const M = planet.massKg;
-                const originalRadius_m = planet.originalRadius / pixelsPerMeter;
-                // --- BEGIN MODIFICATION: Use server-synced value for core radius (Bug #2) ---
-                const coreRadius_m = originalRadius_m * settings.planetGravityCoreRadiusFactor;
+                
+                // --- BEGIN MODIFICATION: Use pre-calculated radius_m to prevent float errors ---
+                // This ensures the client calculation is identical to the server's.
+                const originalRadius_m = planet.originalRadius_m || (planet.originalRadius / pixelsPerMeter);
                 // --- END MODIFICATION ---
+
+                const coreRadius_m = originalRadius_m * settings.planetGravityCoreRadiusFactor;
 
                 if (dist_m > 0) {
                     if (dist_m >= coreRadius_m) {
@@ -243,9 +246,7 @@ export class Projectile {
 
 
 
-        // --- BEGIN MODIFICATION: Use server-synced value for bounds buffer (Bug #3) ---
         const buffer = settings.projectileBoundsBuffer || 500; // Use synchronized value with a reasonable fallback
-        // --- END MODIFICATION ---
         if (this.x < settings.worldMinX - buffer || this.x > settings.worldMaxX + buffer ||
             this.y < settings.worldMinY - buffer || this.y > settings.worldMaxY + buffer) {
             if (this.isActive) {

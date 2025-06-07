@@ -100,7 +100,9 @@ export function updateEntities(state, deltaTime) { // deltaTime is not currently
     if (state.chunks.length > 0) {
         state.chunks.forEach(chunk => {
             if (!chunk.isActive) return;
-            chunk.update(state); // Chunk updates its own physics
+            // --- BEGIN MODIFICATION: Simplified chunk update call ---
+            chunk.update(); // The chunk no longer needs the full state object for its logic
+            // --- END MODIFICATION ---
         });
         // REMOVED: All client-side chunk collision logic has been deleted.
         // The server is now the sole authority for chunk-planet collisions.

@@ -5,7 +5,7 @@ import { initializeGame, stopGameLoop } from './main.js';
 import { Projectile } from './entities/Projectile.js';
 import { Chunk } from './entities/Chunk.js';
 import { Particle } from './entities/Particle.js';
-import { addProjectile, applyServerPlanetState, addParticleToState } from './state/stateModifiers.js';
+import { addProjectile, applyServerPlanetState, addParticleToState, setClickState, setCurrentMousePos, setCameraOffset, setShipRotation, adjustShipAngle, fireShipProjectile, setDamageRadius, setCameraZoom } from './state/stateModifiers.js';
 import * as config from './config.js';
 import { getState } from './state/gameState.js';
 
@@ -223,17 +223,16 @@ function setupSocketListeners() {
         serverChunksData.forEach(serverChunkData => {
             const clientChunk = clientState.chunks.find(c => c.id === serverChunkData.id);
             if (clientChunk) {
-                clientChunk.targetX = serverChunkData.x;
-                clientChunk.targetY = serverChunkData.y;
-                clientChunk.targetAngle = serverChunkData.angle;
-                clientChunk.lastServerUpdateTime = Date.now();
-                clientChunk.isActive = serverChunkData.isActive;
+                // --- BEGIN MODIFICATION: Use the new dedicated update method ---
+                clientChunk.applyServerUpdate(serverChunkData);
+                // --- END MODIFICATION ---
             }
         });
 
         clientState.chunks = clientState.chunks.filter(c => {
             const serverVersion = serverChunksData.find(sc => sc.id === c.id);
-            return serverVersion ? serverVersion.isActive : (!c.persistentDrift && c.life > 0);
+            // Keep the chunk if the server says it's active, OR if it's inactive but still has visual lifetime left
+            return serverVersion ? serverVersion.isActive : (c.isActive && c.life > 0);
         });
     });
     

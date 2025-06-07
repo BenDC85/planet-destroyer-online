@@ -37,7 +37,7 @@ export class Chunk {
         this.targetY = this.y;
         this.targetAngle = this.angle;
         this.lastServerUpdateTime = Date.now();
-        this.INTERPOLATION_FACTOR = 0.05;
+        this.INTERPOLATION_FACTOR = 0.1; // Increased for slightly faster correction
 
         // Life decay properties (driven by client settings for visual fade-out)
         this.life = 1.0;
@@ -47,112 +47,50 @@ export class Chunk {
 
         // Other client-side state flags
         this.reachedCenter = false;
-        this.isTargetedForRemoval = false; // This might be a purely client-side effect
-        this.maxSpeedThreshold = settings.chunkMaxSpeedThreshold;
-        this.maxSpeedSq = this.maxSpeedThreshold * this.maxSpeedThreshold;
+        this.isTargetedForRemoval = false;
     }
 
-    update(state) {
-        if (!this.isActive || (!this.persistentDrift && this.life <= 0)) {
-            this.isActive = false;
+    /**
+     * applyServerUpdate - NEW
+     * A dedicated method to update the chunk's state from a server packet.
+     * This includes the authoritative position, velocity, and angle.
+     */
+    applyServerUpdate(serverData) {
+        this.targetX = serverData.x;
+        this.targetY = serverData.y;
+        this.targetAngle = serverData.angle;
+        
+        // Directly update velocity from the server's data
+        this.vx = serverData.vx;
+        this.vy = serverData.vy;
+
+        this.isActive = serverData.isActive;
+        this.lastServerUpdateTime = Date.now();
+    }
+
+
+    /**
+     * update - REFACTORED
+     * The chunk no longer simulates its own gravity. It simply:
+     * 1. Moves based on its last known velocity from the server (dead reckoning).
+     * 2. Gently interpolates its position towards the server's authoritative state.
+     * 3. Handles its own visual lifetime decay.
+     */
+    update() {
+        if (!this.isActive) {
             return;
         }
 
-        // === STAGE 1: CLIENT-SIDE PHYSICS PREDICTION ===
-        this.prevX = this.x;
-        this.prevY = this.y;
-
-        const planets = state.planets;
-        const settings = state.settings;
-        const eventHorizonRadius = settings.blackHoleEventHorizonRadius;
-        const eventHorizonRadiusSq = eventHorizonRadius * eventHorizonRadius;
-        // **** NEW: Use the synchronized settings from the state object ****
-        const pixelsPerMeter = settings.pixelsPerMeter;
-        const G = settings.G;
-        const secondsPerFrame = settings.secondsPerFrame;
-
-        let totalAccX_pixels = 0;
-        let totalAccY_pixels = 0;
-        let isNearActiveBH_for_damping = false;
-
-        planets.forEach(planet => {
-            const dx_pixels = planet.x - this.x;
-            const dy_pixels = planet.y - this.y;
-            const distSq_pixels = dx_pixels * dx_pixels + dy_pixels * dy_pixels;
-
-            if (distSq_pixels < 1.0 && !planet.isBlackHole) return;
-            if (planet.isBlackHole && distSq_pixels < 0.01) return;
-
-            const dist_pixels = Math.sqrt(distSq_pixels);
-            const dist_m = dist_pixels / pixelsPerMeter;
-            let accelerationMagnitude_mps2 = 0;
-
-            if (planet.isBlackHole) {
-                isNearActiveBH_for_damping = true;
-                if (dist_m > 0) {
-                    // **** NEW: Use synchronized constant ****
-                    accelerationMagnitude_mps2 = settings.blackHoleGravitationalConstant / (dist_m * dist_m);
-                }
-                const ehRadius = settings.blackHoleEventHorizonRadius;
-                // **** NEW: Use synchronized constant ****
-                const dragZoneOuterRadius = ehRadius * settings.bhDragZoneMultiplier;
-
-                if (dist_pixels < dragZoneOuterRadius && dist_pixels > ehRadius) {
-                    const normalizedDistInZone = (dragZoneOuterRadius - dist_pixels) / (dragZoneOuterRadius - ehRadius);
-                    // **** NEW: Use synchronized constant ****
-                    const dragCoeff = settings.bhDragCoefficientMax * normalizedDistInZone;
-                    this.vx *= (1 - dragCoeff);
-                    this.vy *= (1 - dragCoeff);
-                    this.angularVelocity *= (1 - dragCoeff * 0.5);
-                }
-
-            } else if (planet.massKg > 0) {
-                // **** NEW: Use synchronized constant ****
-                const effectiveG = G * settings.planetGravityMultiplier;
-                const M = planet.massKg;
-                const originalRadius_m = (planet.originalRadius_m || planet.originalRadius / pixelsPerMeter);
-                // **** NEW: Use synchronized constant ****
-                const coreRadius_m = originalRadius_m * settings.planetGravityCoreRadiusFactor;
-
-                if (dist_m > 0) {
-                    if (dist_m >= coreRadius_m) {
-                        accelerationMagnitude_mps2 = (effectiveG * M) / (dist_m * dist_m);
-                    } else {
-                        const forceAtCoreEdge = (effectiveG * M) / (coreRadius_m * coreRadius_m);
-                        accelerationMagnitude_mps2 = forceAtCoreEdge * (dist_m / coreRadius_m);
-                    }
-                }
-            }
-
-            if (accelerationMagnitude_mps2 > 0) {
-                const accX_mps2 = (dx_pixels / dist_pixels) * accelerationMagnitude_mps2;
-                const accY_mps2 = (dy_pixels / dist_pixels) * accelerationMagnitude_mps2;
-                const scaleFactor = pixelsPerMeter * secondsPerFrame * secondsPerFrame;
-                totalAccX_pixels += accX_mps2 * scaleFactor;
-                totalAccY_pixels += accY_mps2 * scaleFactor;
-            }
-        });
-
-        // Update velocity based on client-side physics
-        this.vx += totalAccX_pixels;
-        this.vy += totalAccY_pixels;
-        
-        if (this.isTargetedForRemoval) {
-             this.x += this.vx;
-             this.y += this.vy;
-             for (const planet of planets) {
-                 if (!planet.isBlackHole && utils.distanceSq(this, planet) < config.CHUNK_PROXIMITY_REMOVAL_RADIUS_SQ_PX) {
-                     this.isActive = false; this.life = 0; return;
-                 }
-             }
-             return;
-         }
-
+        // === STAGE 1: MOVEMENT (DEAD RECKONING) ===
+        // Move the chunk based on the last known velocity from the server.
         this.x += this.vx;
         this.y += this.vy;
         this.angle += this.angularVelocity;
 
+
         // === STAGE 2: GENTLE CORRECTION TOWARDS SERVER STATE (INTERPOLATION) ===
+        // Smoothly nudge the chunk towards its actual server position.
+        // This corrects any minor drift from the dead reckoning.
         if (this.lastServerUpdateTime > 0) {
             this.x += (this.targetX - this.x) * this.INTERPOLATION_FACTOR;
             this.y += (this.targetY - this.y) * this.INTERPOLATION_FACTOR;
@@ -164,31 +102,14 @@ export class Chunk {
             this.angle = (this.angle + 2 * Math.PI) % (2 * Math.PI);
         }
 
-        // === STAGE 3: FINAL CHECKS AND STATE CHANGES ===
-        // Damping logic was removed here, which was the correct first step.
 
-        // **** NEW: Add out-of-bounds check to mirror server logic ****
-        const buffer = settings.chunkBoundsBuffer || 200; // Use synchronized value with fallback
-        if (this.x < settings.worldMinX - buffer || this.x > settings.worldMaxX + buffer ||
-            this.y < settings.worldMinY - buffer || this.y > settings.worldMaxY + buffer) {
-            this.isActive = false;
-            this.life = 0;
-            return; // Exit update early
-        }
-
-        for (const planet of planets) {
-            if (planet.isBlackHole) {
-                if (utils.distanceSq(this, {x: planet.x, y: planet.y}) <= eventHorizonRadiusSq) {
-                    this.isActive = false; this.life = 0; return;
-                }
-            }
-        }
-        
+        // === STAGE 3: VISUAL LIFETIME DECAY ===
+        // If not set to drift forever, fade out over time.
         if (!this.persistentDrift) {
             this.life -= this.lifeDecayRate;
             if (this.life <= 0) {
                 this.life = 0;
-                this.isActive = false;
+                this.isActive = false; // Mark for cleanup
             }
         }
     }
