@@ -102,9 +102,12 @@ export class Projectile {
 
 
 
-        this.serverConfirmedX = x;
-        this.serverConfirmedY = y;
+        // --- BEGIN MODIFICATION: Add interpolation properties ---
+        this.targetX = x;
+        this.targetY = y;
         this.lastServerUpdateTime = 0;
+        this.INTERPOLATION_FACTOR = 0.15; // A higher value corrects faster
+        // --- END MODIFICATION ---
 
     }
 
@@ -174,7 +177,8 @@ export class Projectile {
 
 
 
-        // **** START: MODIFIED CLIENT-SIDE GRAVITY PREDICTION ****
+        // **** START: CLIENT-SIDE GRAVITY PREDICTION ****
+        // This part remains the same, as the prediction model is now accurate.
         state.planets.forEach(planet => {
             const dx_pixels = planet.x - this.x;
             const dy_pixels = planet.y - this.y;
@@ -191,7 +195,6 @@ export class Projectile {
                 if (dist_m > 0) {
                     accelerationMagnitude_mps2 = settings.blackHoleGravitationalConstant / (dist_m * dist_m);
                 }
-                // Apply drag if near this black hole (client-side prediction)
                 const ehRadius = settings.blackHoleEventHorizonRadius;
                 const dragZoneOuterRadius = ehRadius * settings.bhDragZoneMultiplier;
                 if (dist_pixels < dragZoneOuterRadius && dist_pixels > ehRadius) {
@@ -200,23 +203,16 @@ export class Projectile {
                     this.vx *= (1 - dragCoeff); 
                     this.vy *= (1 - dragCoeff);
                 }
-            } else if (planet.massKg > 0) { // Normal planet gravity
+            } else if (planet.massKg > 0) {
                 const effectiveG = G * settings.planetGravityMultiplier;
                 const M = planet.massKg;
-                
-                // --- BEGIN MODIFICATION: Use pre-calculated radius_m to prevent float errors ---
-                // This ensures the client calculation is identical to the server's.
                 const originalRadius_m = planet.originalRadius_m || (planet.originalRadius / pixelsPerMeter);
-                // --- END MODIFICATION ---
-
                 const coreRadius_m = originalRadius_m * settings.planetGravityCoreRadiusFactor;
 
                 if (dist_m > 0) {
                     if (dist_m >= coreRadius_m) {
-                        // Standard "always outside" formula
                         accelerationMagnitude_mps2 = (effectiveG * M) / (dist_m * dist_m);
                     } else {
-                        // "Soft center" formula
                         const forceAtCoreEdge = (effectiveG * M) / (coreRadius_m * coreRadius_m);
                         accelerationMagnitude_mps2 = forceAtCoreEdge * (dist_m / coreRadius_m);
                     }
@@ -231,27 +227,34 @@ export class Projectile {
                 totalAccY_pixels += accY_mps2 * scaleFactor;
             }
         });
-        // **** END: MODIFIED CLIENT-SIDE GRAVITY PREDICTION ****
+        // **** END: CLIENT-SIDE GRAVITY PREDICTION ****
 
 
 
 
 
+        // Apply predicted physics
         this.vx += totalAccX_pixels;
         this.vy += totalAccY_pixels;
         this.x += this.vx;
         this.y += this.vy;
 
 
+        // --- BEGIN MODIFICATION: Apply smooth interpolation ---
+        // Instead of snapping, we gently nudge the projectile towards its true server position.
+        if (this.lastServerUpdateTime > 0) {
+            this.x += (this.targetX - this.x) * this.INTERPOLATION_FACTOR;
+            this.y += (this.targetY - this.y) * this.INTERPOLATION_FACTOR;
+        }
+        // --- END MODIFICATION ---
 
 
 
-        const buffer = settings.projectileBoundsBuffer || 500; // Use synchronized value with a reasonable fallback
+        const buffer = settings.projectileBoundsBuffer || 500;
         if (this.x < settings.worldMinX - buffer || this.x > settings.worldMaxX + buffer ||
             this.y < settings.worldMinY - buffer || this.y > settings.worldMaxY + buffer) {
             if (this.isActive) {
-                this.isLost = true; 
-                // Server handles deactivation via projectiles_update or specific event
+                this.isLost = true;
             }
         } else {
             this.pathHistory.push({ x: this.x, y: this.y });
@@ -336,30 +339,22 @@ export class Projectile {
 
 
 
-
+    // --- BEGIN MODIFICATION: Refactored server update handler ---
     applyServerUpdate(updateData) {
-
-        this.x = updateData.x;
-        this.y = updateData.y;
-        // If server also sends vx, vy, update them for better prediction alignment
+        // We no longer teleport the projectile. Instead, we set its "target"
+        // and update its velocity to be in sync with the server.
+        this.targetX = updateData.x;
+        this.targetY = updateData.y;
+        
         if (updateData.vx !== undefined) this.vx = updateData.vx;
         if (updateData.vy !== undefined) this.vy = updateData.vy;
 
-
-
-
-
-        this.serverConfirmedX = updateData.x;
-        this.serverConfirmedY = updateData.y;
         this.lastServerUpdateTime = Date.now();
-
-
-
-
 
         if (updateData.isActive === false && this.isActive) {
             this.isActive = false;
         }
     }
+    // --- END MODIFICATION ---
 }
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=ProjectileClass##

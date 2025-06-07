@@ -37,7 +37,9 @@ export class Chunk {
         this.targetY = this.y;
         this.targetAngle = this.angle;
         this.lastServerUpdateTime = Date.now();
-        this.INTERPOLATION_FACTOR = 0.1; // Increased for slightly faster correction
+        // --- BEGIN MODIFICATION: Consistent interpolation factor ---
+        this.INTERPOLATION_FACTOR = 0.15; // Adjusted to match projectiles
+        // --- END MODIFICATION ---
 
         // Life decay properties (driven by client settings for visual fade-out)
         this.life = 1.0;
