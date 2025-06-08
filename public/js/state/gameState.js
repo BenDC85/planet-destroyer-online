@@ -27,9 +27,8 @@ export const TARGET_CENTER_OFFSET_Y = WORLD_CENTER_Y;
 export function initializeState(canvasWidth, canvasHeight, initialSettings = {}, serverInitialWorldData = null, authoritativeLocalPlayerData = null) { 
     console.log(`--- Initializing Client Game State (Canvas: ${canvasWidth}x${canvasHeight}) ---`);
 
-    // **** NEW: Destructure the server data, including the new config object ****
     const { planets: serverPlanets, config: serverConfig } = serverInitialWorldData || {};
-    const serverPhysics = serverConfig?.physics; // Extract the physics bundle
+    const serverPhysics = serverConfig?.physics; 
 
     if (serverPhysics && Object.keys(serverPhysics).length > 0) {
         console.log("   Using authoritative server configuration for physics constants:", serverPhysics);
@@ -43,16 +42,6 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
         console.warn("   authoritativeLocalPlayerData is null during initializeState. Local ship will use defaults.");
     }
 
-    /**
-     * Safely retrieves a value from the server's physics config.
-     * If the server value is not present, it logs a warning and uses a local fallback.
-     * This makes desync issues due to missing config values obvious during development.
-     * @param {object} serverPhysicsConfig - The physics object from the server.
-     * @param {string} key - The key of the constant to retrieve.
-     * @param {*} localConfigValue - The value from the local config.js (preferred fallback).
-     * @param {*} hardcodedFallback - A hardcoded value to use if localConfigValue is also undefined.
-     * @returns {*} The authoritative value for the setting.
-     */
     function getSyncedValue(serverPhysicsConfig, key, localConfigValue, hardcodedFallback) {
         if (serverPhysicsConfig && serverPhysicsConfig[key] !== undefined) {
             return serverPhysicsConfig[key];
@@ -63,10 +52,8 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
     }
 
 
-    // **** NEW: Prioritize server-sent config, use local config as a fallback. ****
-    // This ensures client prediction matches server reality.
     const settings = { 
-        // World and Camera (can be sourced from server or client)
+        // World and Camera
         worldMinX: serverConfig?.worldMinX ?? WORLD_MIN_X,
         worldMinY: serverConfig?.worldMinY ?? WORLD_MIN_Y,
         worldMaxX: serverConfig?.worldMaxX ?? WORLD_MAX_X,
@@ -88,13 +75,15 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
         bhDragCoefficientMax: getSyncedValue(serverPhysics, 'bhDragCoefficientMax', config.defaultBHDragCoefficientMax, 0.100),
         chunkLifespanFrames: getSyncedValue(serverPhysics, 'chunkLifespanFrames', config.defaultChunkLifespan, 9999),
         chunkBoundsBuffer: getSyncedValue(serverPhysics, 'chunkBoundsBuffer', undefined, 200),
-        
-        // --- BEGIN ADDED CODE: Receive new constants to fix desync (Bugs #3 & #4) ---
         referencePlanetMassForBHFactor: getSyncedValue(serverPhysics, 'referencePlanetMassForBHFactor', config.REFERENCE_PLANET_MASS_FOR_BH_FACTOR, 1e11),
-        projectileBoundsBuffer: getSyncedValue(serverPhysics, 'projectileBoundsBuffer', undefined, 500),
-        // --- END ADDED CODE ---
+        bhEventHorizonRadiusPx: getSyncedValue(serverPhysics, 'bhEventHorizonRadiusPx', config.DEFAULT_BH_EVENT_HORIZON_RADIUS, 30),
 
-        // HUD-Modifiable Settings (start with defaults, can be changed by user)
+        // --- BEGIN MODIFICATION: Receive new projectile deactivation constants ---
+        projectileBoundsBuffer: getSyncedValue(serverPhysics, 'projectileBoundsBuffer', undefined, 500),
+        projectileMaxLifespanFrames: getSyncedValue(serverPhysics, 'projectileMaxLifespanFrames', undefined, 4000),
+        // --- END MODIFICATION ---
+
+        // HUD-Modifiable Settings
         shipZoomAttractFactor: initialSettings.shipZoomAttractFactor ?? config.DEFAULT_SHIP_ZOOM_ATTRACT_FACTOR,
         planetZoomAttractFactor: initialSettings.planetZoomAttractFactor ?? config.DEFAULT_PLANET_ZOOM_ATTRACT_FACTOR,
         planetCount: initialSettings.planetCount ?? config.DEFAULT_PLANET_COUNT, 
@@ -115,7 +104,6 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
         bhInitialInwardFactor: initialSettings.bhInitialInwardFactor ?? config.defaultBHInitialInwardFactor,
         bhInitialAngularFactor: initialSettings.bhInitialAngularFactor ?? config.defaultBHInitialAngularFactor,
         bhGravityFactor: initialSettings.bhGravityFactor ?? config.defaultBHGravityFactor,
-        blackHoleEventHorizonRadius: initialSettings.blackHoleEventHorizonRadius ?? config.DEFAULT_BH_EVENT_HORIZON_RADIUS,
         chunkMaxSpeedThreshold: initialSettings.chunkMaxSpeedThreshold ?? config.defaultChunkMaxSpeed,
         coreExplosionDuration: initialSettings.coreExplosionDuration ?? config.defaultCoreExplosionDuration,
         coreImplosionDuration: initialSettings.coreImplosionDuration ?? config.defaultCoreImplosionDuration,
@@ -123,7 +111,7 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
         keToMassEjectEta: initialSettings.keToMassEjectEta ?? config.defaultKEToMassEjectEta,
         bhEnergyMultiplier: initialSettings.bhEnergyMultiplier ?? config.defaultBHEnergyMultiplier,
 
-        // Other settings that are client-only or derived
+        // Client-only or derived settings
         gameFps: config.GAME_FPS,
         clientShipDefaultHealth: 100, 
     };
@@ -191,7 +179,6 @@ export function updateRemotePlayerShips() {
             continue; 
         }
         
-        // This is for remote players
         if (!currentState.remotePlayers[socketIdFromServer]) {
             currentState.remotePlayers[socketIdFromServer] = new Ship(
                 socketIdFromServer, 
@@ -205,7 +192,6 @@ export function updateRemotePlayerShips() {
             );
             currentState.remotePlayers[socketIdFromServer].isLocalPlayer = false;
         } else {
-            // Update existing remote ship instance using its setState method
             currentState.remotePlayers[socketIdFromServer].setState(
                 playerDataFromServer.x, 
                 playerDataFromServer.y, 
@@ -220,7 +206,6 @@ export function updateRemotePlayerShips() {
             }
         }
     }
-    // Cleanup loop for remotePlayers remains the same
     for (const socketIdInState in currentState.remotePlayers) {
         if (!networkPlayersData[socketIdInState]) { 
             console.log(`[GameState] Cleaning up. Removing remote player ${socketIdInState} not in network data.`);

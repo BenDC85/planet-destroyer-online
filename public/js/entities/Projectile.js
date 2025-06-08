@@ -21,24 +21,6 @@ import { getState } from '../state/gameState.js';
 
 
 
-// Messages for projectiles lost in space (can be removed if server handles all "lost" logic)
-
-const LOST_IN_SPACE_MESSAGES = [
-
-    "was lost in the cosmic void.",
-
-    "hit space dust and was obliterated.",
-
-    "was consumed by a rogue space amoeba.",
-
-    // ... (keep or remove as desired, server may make these redundant)
-
-];
-
-
-
-
-
 export class Projectile {
 
     /** Constructor - Now expects angle and initialSpeedInternalPxFrame for vx,vy setup */
@@ -96,18 +78,15 @@ export class Projectile {
         this.inactiveTrailColor = '#D2691E'; 
         this.trailLife = config.PROJECTILE_TRAIL_PERSIST_DURATION_FRAMES;
         this.trailPersistsAfterImpact = true;
-        this.isLost = false;
+        
+        // --- BEGIN MODIFICATION: Client-side lifespan tracking ---
+        this.framesAlive = 0;
+        // --- END MODIFICATION ---
 
-
-
-
-
-        // --- BEGIN MODIFICATION: Add interpolation properties ---
         this.targetX = x;
         this.targetY = y;
         this.lastServerUpdateTime = 0;
-        this.INTERPOLATION_FACTOR = 0.15; // A higher value corrects faster
-        // --- END MODIFICATION ---
+        this.INTERPOLATION_FACTOR = 0.15;
 
     }
 
@@ -153,7 +132,7 @@ export class Projectile {
 
 
         const settings = state.settings;
-        const eventHorizonRadius = settings.blackHoleEventHorizonRadius;
+        const eventHorizonRadius = settings.bhEventHorizonRadiusPx;
         const eventHorizonRadiusSq = eventHorizonRadius * eventHorizonRadius;
         const pixelsPerMeter = settings.pixelsPerMeter;
         const G = settings.G;
@@ -177,8 +156,7 @@ export class Projectile {
 
 
 
-        // **** START: CLIENT-SIDE GRAVITY PREDICTION ****
-        // This part remains the same, as the prediction model is now accurate.
+        // CLIENT-SIDE GRAVITY PREDICTION
         state.planets.forEach(planet => {
             const dx_pixels = planet.x - this.x;
             const dy_pixels = planet.y - this.y;
@@ -195,7 +173,7 @@ export class Projectile {
                 if (dist_m > 0) {
                     accelerationMagnitude_mps2 = settings.blackHoleGravitationalConstant / (dist_m * dist_m);
                 }
-                const ehRadius = settings.blackHoleEventHorizonRadius;
+                const ehRadius = settings.bhEventHorizonRadiusPx;
                 const dragZoneOuterRadius = ehRadius * settings.bhDragZoneMultiplier;
                 if (dist_pixels < dragZoneOuterRadius && dist_pixels > ehRadius) {
                     const normalizedDistInZone = (dragZoneOuterRadius - dist_pixels) / (dragZoneOuterRadius - ehRadius);
@@ -227,7 +205,6 @@ export class Projectile {
                 totalAccY_pixels += accY_mps2 * scaleFactor;
             }
         });
-        // **** END: CLIENT-SIDE GRAVITY PREDICTION ****
 
 
 
@@ -239,38 +216,36 @@ export class Projectile {
         this.x += this.vx;
         this.y += this.vy;
 
-
-        // --- BEGIN MODIFICATION: Apply smooth interpolation ---
-        // Instead of snapping, we gently nudge the projectile towards its true server position.
+        // Apply smooth interpolation
         if (this.lastServerUpdateTime > 0) {
             this.x += (this.targetX - this.x) * this.INTERPOLATION_FACTOR;
             this.y += (this.targetY - this.y) * this.INTERPOLATION_FACTOR;
         }
-        // --- END MODIFICATION ---
 
+        // --- BEGIN MODIFICATION: Client-side deactivation checks ---
+        this.framesAlive++;
 
+        const buffer = settings.projectileBoundsBuffer;
+        const maxFrames = settings.projectileMaxLifespanFrames;
 
-        const buffer = settings.projectileBoundsBuffer || 500;
-        if (this.x < settings.worldMinX - buffer || this.x > settings.worldMaxX + buffer ||
+        if (this.framesAlive > maxFrames || 
+            this.x < settings.worldMinX - buffer || this.x > settings.worldMaxX + buffer ||
             this.y < settings.worldMinY - buffer || this.y > settings.worldMaxY + buffer) {
-            if (this.isActive) {
-                this.isLost = true;
-            }
+            
+            this.isActive = false; // Deactivate locally to stop rendering/updates
         } else {
+            // Only add to path history if it's still active
             this.pathHistory.push({ x: this.x, y: this.y });
             if (this.pathHistory.length > config.PROJECTILE_MAX_PATH_POINTS) {
                 this.pathHistory.shift();
             }
         }
-
-
-
-
+        // --- END MODIFICATION ---
 
         state.planets.forEach(planet => {
             if (!this.isActive || !planet.isBlackHole) return;
             if (utils.distanceSq({x: this.x, y: this.y}, {x: planet.x, y: planet.y}) <= eventHorizonRadiusSq) {
-                // Server handles deactivation for BH absorption
+                this.isActive = false;
             }
         });
     }
@@ -339,10 +314,8 @@ export class Projectile {
 
 
 
-    // --- BEGIN MODIFICATION: Refactored server update handler ---
+
     applyServerUpdate(updateData) {
-        // We no longer teleport the projectile. Instead, we set its "target"
-        // and update its velocity to be in sync with the server.
         this.targetX = updateData.x;
         this.targetY = updateData.y;
         
@@ -355,6 +328,5 @@ export class Projectile {
             this.isActive = false;
         }
     }
-    // --- END MODIFICATION ---
 }
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=ProjectileClass##

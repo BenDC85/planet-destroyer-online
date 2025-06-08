@@ -67,8 +67,8 @@ const SV_MAX_CRATER_COUNT_FOR_DESTRUCTION_THRESHOLD = 75;
 const SV_MIN_MASS_LOSS_FOR_CRATER_COUNT_DESTRUCTION = 0.50;
 const SV_VISUAL_HOLLOWNESS_DESTRUCTION_THRESHOLD = 0.75;
 const SV_BREAKUP_DURATION_FRAMES = 30;
-const SV_CORE_EXPLOSION_DURATION_FRAMES = 45;
-const SV_CORE_IMPLOSION_DURATION_FRAMES = 22;
+const SV_CORE_EXPLOSION_DURATION_FRAMES = 4.5;
+const SV_CORE_IMPLOSION_DURATION_FRAMES = 2.2;
 const SV_CORE_EFFECT_OVERLAP_FRAMES = 5;
 const SV_CHUNK_GRACE_PERIOD_DURATION_FRAMES = 20;
 
@@ -107,8 +107,11 @@ const SV_PHYSICS_CONSTANTS = {
     chunkLifespanFrames: SV_CHUNK_LIFESPAN_FRAMES,
     chunkBoundsBuffer: SV_CHUNK_BOUNDS_BUFFER,
     referencePlanetMassForBHFactor: SV_REFERENCE_PLANET_MASS_FOR_BH_FACTOR,
-    projectileBoundsBuffer: SV_PROJECTILE_BOUNDS_BUFFER,
     bhEventHorizonRadiusPx: SV_BH_EVENT_HORIZON_RADIUS_PX,
+    // --- BEGIN MODIFICATION: Add missing projectile constants ---
+    projectileBoundsBuffer: SV_PROJECTILE_BOUNDS_BUFFER,
+    projectileMaxLifespanFrames: SV_PROJECTILE_MAX_LIFESPAN_FRAMES
+    // --- END MODIFICATION ---
 };
 // --- END: Authoritative Physics Constants Bundle ---
 
@@ -383,7 +386,7 @@ io.on('connection', (socket) => {
             health: SV_SHIP_DEFAULT_HEALTH,
             isAlive: true,
             lastFireTime: 0,
-            ping: 0 // Initialize ping
+            ping: 0
         };
 
         console.log(`Socket ${socket.id} joined as Player ${players[socket.id].playerNumber} (Name: \"${trimmedPlayerName}\", HP: ${players[socket.id].health}) at (${spawnPoint.x.toFixed(0)}, ${spawnPoint.y.toFixed(0)})`);
@@ -413,9 +416,7 @@ io.on('connection', (socket) => {
             player.x = shipData.x;
             player.y = shipData.y;
             player.angle = shipData.angle;
-            // --- BEGIN MODIFICATION: Store the player's reported ping ---
             player.ping = shipData.ping || 0;
-            // --- END MODIFICATION ---
             socket.broadcast.emit('player_moved', { socketId: socket.id, x: shipData.x, y: shipData.y, angle: shipData.angle });
         }
     });
@@ -463,11 +464,9 @@ io.on('connection', (socket) => {
         io.emit('new_projectile_created', newServerProjectile);
     });
 
-    // --- BEGIN MODIFICATION: Add a listener for ping requests ---
     socket.on('ping_from_client', () => {
         socket.emit('pong_from_server');
     });
-    // --- END MODIFICATION ---
 
     socket.on('request_world_reset', (clientSuggestedSettings) => {
         console.log(`[SERVER] Received 'request_world_reset' from ${players[socket.id]?.playerName || socket.id}.`);
@@ -626,9 +625,7 @@ function updateServerProjectiles() {
                 if (distSq_pixels <= ehRadius * ehRadius) {
                     proj.isActive = false;
                     wasAbsorbedThisFrame = true;
-                    // --- BEGIN MODIFICATION: Explicitly notify clients of absorption ---
                     io.emit('projectile_absorbed_by_bh', { projectileId: proj.id, blackHoleId: planet.id });
-                    // --- END MODIFICATION ---
                     console.log(`[SERVER] Projectile ${proj.id} absorbed by Black Hole ${planet.id}`);
                     return;
                 }
@@ -712,25 +709,22 @@ function updateServerProjectiles() {
                 };
                 if (!(projMaxX < planetBounds.minX || projMinX > planetBounds.maxX || projMaxY < planetBounds.minY || projMinY > planetBounds.maxY)) {
                     
-                    // --- BEGIN MODIFICATION: Server-Side Rewind for Lag Compensation ---
                     let checkSegmentStart = { x: proj.prevX, y: proj.prevY };
                     let checkSegmentEnd = { x: proj.x, y: proj.y };
                     const owner = players[proj.ownerShipId];
 
                     if (owner && owner.ping > 0) {
-                        const latencySeconds = (owner.ping / 2) / 1000.0; // One-way latency
+                        const latencySeconds = (owner.ping / 2) / 1000.0;
                         const framesToRewind = Math.round(latencySeconds / SV_PROJECTILE_SECONDS_PER_FRAME);
                         
                         if (framesToRewind > 0) {
                             checkSegmentEnd.x -= proj.vx * framesToRewind;
                             checkSegmentEnd.y -= proj.vy * framesToRewind;
-                            // Also rewind the start of the segment for a more accurate vector check
                             checkSegmentStart.x -= proj.vx * framesToRewind;
                             checkSegmentStart.y -= proj.vy * framesToRewind;
                         }
                     }
                     const impact = serverFindAccurateImpactPoint(checkSegmentStart, checkSegmentEnd, planet);
-                    // --- END MODIFICATION ---
 
                     if (impact) {
                         proj.isActive = false;
