@@ -1,4 +1,3 @@
-/* File: public/js/config.js */
 // js/config.js
 
 
@@ -104,7 +103,7 @@ export const CHUNK_TARGETED_REMOVAL_SPEED_PX_FRAME = 60; // Client-side only con
 export const CHUNK_MAX_GENERATION_ATTEMPTS_FACTOR = 15;
 export const CHUNK_MASS_AREA_FACTOR = 0.1;
 export const CHUNK_DEFAULT_BASE_SIZE_MIN = 8;
-export const CHUNK_DEFAULT_BASE_SIZE_RANDOM_RANGE = 24; // UPDATED to match server (was 12)
+export const CHUNK_DEFAULT_BASE_SIZE_RANDOM_RANGE = 24;
 export const CHUNK_DEFAULT_ANGULAR_VELOCITY_FACTOR = 0.05;
 export const CHUNK_INITIAL_RADIAL_SPEED_MIN = 0.5;
 export const CHUNK_INITIAL_RADIAL_SPEED_RANDOM_RANGE = 3.0;
@@ -116,17 +115,12 @@ export const CHUNK_POINT_DISTANCE_FACTOR_MIN = 0.6;
 export const CHUNK_POINT_DISTANCE_FACTOR_RANDOM_RANGE = 0.8;
 export const CHUNK_POINT_ANGLE_INCREMENT_BASE_FACTOR = 1.5;
 export const CHUNK_POINT_ANGLE_RANDOM_FACTOR = 0.5;
-// --- BEGIN MODIFICATION: Removed unused constants (Discrepancy #2) ---
-// The following two constants are no longer used in the client-side code.
-// export const CHUNK_VELOCITY_DAMPING_FACTOR = 0.995;
-// export const CHUNK_ANGULAR_VELOCITY_DAMPING_FACTOR = 0.99;
-// --- END MODIFICATION ---
 
 
 
 // --- Ship Constants ---
 
-export const SHIP_SIZE_PX = 12.5; // UPDATED to be RADIUS, matches server (was 25)
+export const SHIP_SIZE_PX = 30; // Ship radius in pixels. Must match server-side hitbox.
 
 export const SHIP_COLOR = '#00FF00'; // Default/Local player ship color, will be overridden for individual players
 
@@ -136,7 +130,7 @@ export const SHIP_FINE_TURN_RATE_RAD_FRAME = 0.015;
 
 export const SHIP_INITIAL_X_OFFSET_PX = 0;
 
-export const SHIP_INITIAL_Y_OFFSET_PX = -150; // Relative to world center for the *local* player if spawning first
+export const SHIP_INITIAL_Y_OFFSET_PX = -200; // Adjusted for larger ship size
 
 export const SHIP_PROJECTILE_MUZZLE_OFFSET_FACTOR = 1.1;
 

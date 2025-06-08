@@ -1,178 +1,237 @@
-// js/entities/Ship.js
-
+// js/state/gameState.js
 
 import * as config from '../config.js';
-import { getState } from '../state/gameState.js';
-import { sendShipUpdate } from '../network.js';
+import { Ship } from '../entities/Ship.js';
+// Import using a clearer alias, as getMyPlayerId now returns the userId.
+import { getMyPlayerId as getMyUserId, getClientSidePlayers } from '../network.js'; 
 
 
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=ShipClass##
-export class Ship {
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=gameStateFileContent##
 
-    constructor(id, name, initialX, initialY, initialAngle, color, initialHealth, initialIsAlive) {
-        this.id = id;
-        this.name = name;
-        this.x = initialX;
-        this.y = initialY;
-        this.angle = initialAngle;
-        this.size = config.SHIP_SIZE_PX;
+let currentState = {};
 
-        this.defaultColor = color; // Store original color
-        this.color = color;        // Current drawing color
+// **** MODIFIED: These are now primarily fallbacks. The server will provide the authoritative values. ****
+const WORLD_MIN_X = -2900; const WORLD_MIN_Y = -2250;
+const WORLD_MAX_X = 4800; const WORLD_MAX_Y = 2250;
+const WORLD_WIDTH = WORLD_MAX_X - WORLD_MIN_X;
+const WORLD_HEIGHT = WORLD_MAX_Y - WORLD_MIN_Y; 
 
-        this.health = initialHealth ?? 100; // Default to 100 if not provided by server initially
-        this.isAlive = initialIsAlive ?? true;
+const WORLD_CENTER_X = WORLD_MIN_X + WORLD_WIDTH / 2;
+const WORLD_CENTER_Y = WORLD_MIN_Y + WORLD_HEIGHT / 2;
 
-        this.isRotatingLeft = false;
-        this.isRotatingRight = false;
-        this.isMovingForward = false;
+export const TARGET_CENTER_OFFSET_X = WORLD_CENTER_X - 930;
+export const TARGET_CENTER_OFFSET_Y = WORLD_CENTER_Y;
 
-        this.fireCooldown = 0;
-        this.fireRate = config.SHIP_FIRE_RATE_FRAMES;
 
-        this.isLocalPlayer = false;
-        this.lastSentState = { x: 0, y: 0, angle: 0 };
-        this.updateSendThrottle = 0;
-        this.UPDATE_SEND_INTERVAL = 3;
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=initializeStateFunction##
+export function initializeState(canvasWidth, canvasHeight, initialSettings = {}, serverInitialWorldData = null, authoritativeLocalPlayerData = null) { 
+    console.log(`--- Initializing Client Game State (Canvas: ${canvasWidth}x${canvasHeight}) ---`);
 
-        // **** NEW: For hit flash effect ****
-        this.hitColor = '#FFFFFF'; // White flash on hit
-        // Original: this.HIT_FLASH_DURATION = 10;
-        this.HIT_FLASH_DURATION = 20; // << INCREASED DURATION (e.g., to 20 frames = ~333ms)
-        this.hitFlashTimer = 0;
+    const { planets: serverPlanets, config: serverConfig } = serverInitialWorldData || {};
+    const serverPhysics = serverConfig?.physics; 
+
+    if (serverPhysics && Object.keys(serverPhysics).length > 0) {
+        console.log("   Using authoritative server configuration for physics constants:", serverPhysics);
+    } else {
+        console.warn("   Server physics configuration not received or is empty. Falling back to local config.js values. Physics prediction will likely be inaccurate!");
+    }
+
+    if (authoritativeLocalPlayerData) {
+        console.log("   Using authoritativeLocalPlayerData for local ship setup:", authoritativeLocalPlayerData);
+    } else {
+        console.warn("   authoritativeLocalPlayerData is null during initializeState. Local ship will use defaults.");
+    }
+
+    function getSyncedValue(serverPhysicsConfig, key, localConfigValue, hardcodedFallback) {
+        if (serverPhysicsConfig && serverPhysicsConfig[key] !== undefined) {
+            return serverPhysicsConfig[key];
+        }
+        const valueToUse = localConfigValue !== undefined ? localConfigValue : hardcodedFallback;
+        console.warn(`[GameState] Server did not provide physics constant '${key}'. Using local/default fallback of ${valueToUse}. This may cause desync.`);
+        return valueToUse;
     }
 
 
-    update(isThisClientShip = false) {
-        this.isLocalPlayer = isThisClientShip;
+    const settings = { 
+        // World and Camera
+        worldMinX: serverConfig?.worldMinX ?? WORLD_MIN_X,
+        worldMinY: serverConfig?.worldMinY ?? WORLD_MIN_Y,
+        worldMaxX: serverConfig?.worldMaxX ?? WORLD_MAX_X,
+        worldMaxY: serverConfig?.worldMaxY ?? WORLD_MAX_Y,
+        worldWidth: (serverConfig?.worldMaxX - serverConfig?.worldMinX) ?? WORLD_WIDTH,
+        worldHeight: (serverConfig?.worldMaxY - serverConfig?.worldMinY) ?? WORLD_HEIGHT,
+        cameraOffsetX: initialSettings.cameraOffsetX ?? TARGET_CENTER_OFFSET_X,
+        cameraOffsetY: initialSettings.cameraOffsetY ?? TARGET_CENTER_OFFSET_Y,
+        cameraZoom: initialSettings.cameraZoom ?? config.defaultCameraZoom,
 
-        // **** NEW: Update hit flash timer ****
-        if (this.hitFlashTimer > 0) {
-            this.hitFlashTimer--;
-            if (this.hitFlashTimer <= 0) {
-                this.color = this.defaultColor; // Revert to default color
-            } else {
-                // Original flicker: this.color = (this.hitFlashTimer % 4 < 2) ? this.hitColor : this.defaultColor;
-                // Solid flash for the first half, then flicker for the second half
-                if (this.hitFlashTimer > this.HIT_FLASH_DURATION / 2) {
-                    this.color = this.hitColor; // Solid white for the first half
-                } else {
-                    // Flicker for the second half
-                    this.color = (this.hitFlashTimer % 6 < 3) ? this.hitColor : this.defaultColor; // Slower flicker
-                }
+        // Critical Physics Constants (MUST match server)
+        G: getSyncedValue(serverPhysics, 'G', config.G, 6.674e-11),
+        pixelsPerMeter: getSyncedValue(serverPhysics, 'pixelsPerMeter', config.PIXELS_PER_METER, 0.5),
+        secondsPerFrame: getSyncedValue(serverPhysics, 'secondsPerFrame', config.SECONDS_PER_FRAME, 1/60),
+        planetGravityMultiplier: getSyncedValue(serverPhysics, 'planetGravityMultiplier', undefined, config.defaultPlanetGravityMultiplier * config.PLANET_GRAVITY_HUD_SCALE_FACTOR),
+        planetGravityCoreRadiusFactor: getSyncedValue(serverPhysics, 'planetGravityCoreRadiusFactor', config.PLANET_GRAVITY_CORE_RADIUS_FACTOR, 0.20),
+        blackHoleGravitationalConstant: getSyncedValue(serverPhysics, 'blackHoleGravitationalConstant', undefined, 0),
+        bhDragZoneMultiplier: getSyncedValue(serverPhysics, 'bhDragZoneMultiplier', config.defaultBHDragZoneMultiplier, 5.0),
+        bhDragCoefficientMax: getSyncedValue(serverPhysics, 'bhDragCoefficientMax', config.defaultBHDragCoefficientMax, 0.100),
+        chunkLifespanFrames: getSyncedValue(serverPhysics, 'chunkLifespanFrames', config.defaultChunkLifespan, 9999),
+        chunkBoundsBuffer: getSyncedValue(serverPhysics, 'chunkBoundsBuffer', undefined, 200),
+        referencePlanetMassForBHFactor: getSyncedValue(serverPhysics, 'referencePlanetMassForBHFactor', config.REFERENCE_PLANET_MASS_FOR_BH_FACTOR, 1e11),
+        bhEventHorizonRadiusPx: getSyncedValue(serverPhysics, 'bhEventHorizonRadiusPx', config.DEFAULT_BH_EVENT_HORIZON_RADIUS, 30),
+        projectileBoundsBuffer: getSyncedValue(serverPhysics, 'projectileBoundsBuffer', undefined, 500),
+        projectileMaxLifespanFrames: getSyncedValue(serverPhysics, 'projectileMaxLifespanFrames', undefined, 4000),
+
+        // HUD-Modifiable Settings
+        shipZoomAttractFactor: initialSettings.shipZoomAttractFactor ?? config.DEFAULT_SHIP_ZOOM_ATTRACT_FACTOR,
+        planetZoomAttractFactor: initialSettings.planetZoomAttractFactor ?? config.DEFAULT_PLANET_ZOOM_ATTRACT_FACTOR,
+        planetCount: initialSettings.planetCount ?? config.DEFAULT_PLANET_COUNT, 
+        destructionChunkCount: initialSettings.destructionChunkCount ?? config.DEFAULT_DESTRUCTION_CHUNK_COUNT,
+        destructionParticleCount: initialSettings.destructionParticleCount ?? config.DEFAULT_DESTRUCTION_PARTICLE_COUNT,
+        baseDamageRadius: initialSettings.baseDamageRadius ?? config.defaultBaseDamageRadius,
+        persistentChunkDrift: initialSettings.persistentChunkDrift ?? config.defaultPersistentChunkDrift,
+        projectileSpeed: (initialSettings.projectileSpeed ?? config.defaultProjectileSpeed) * config.PROJECTILE_SPEED_HUD_SCALE_FACTOR,
+        projectileMass: initialSettings.projectileMass ?? config.defaultProjectileMass,
+        bhParticleLifeFactor: initialSettings.bhParticleLifeFactor ?? config.defaultBHParticleLifeFactor,
+        bhParticleSpeedFactor: initialSettings.bhParticleSpeedFactor ?? config.defaultBHParticleSpeedFactor,
+        bhParticleSpawnRate: initialSettings.bhParticleSpawnRate ?? config.defaultBHParticleSpawnRate,
+        bhMaxParticles: initialSettings.bhMaxParticles ?? config.defaultBHMaxParticles,
+        bhSpawnRadiusMinFactor: initialSettings.bhSpawnRadiusMinFactor ?? config.defaultBHSpawnRadiusMinFactor,
+        bhSpawnRadiusMaxFactor: initialSettings.bhSpawnRadiusMaxFactor ?? config.defaultBHSpawnRadiusMaxFactor,
+        bhParticleMinSize: initialSettings.bhParticleMinSize ?? config.defaultBHParticleMinSize,
+        bhParticleMaxSize: initialSettings.bhParticleMaxSize ?? config.defaultBHParticleMaxSize,
+        bhInitialInwardFactor: initialSettings.bhInitialInwardFactor ?? config.defaultBHInitialInwardFactor,
+        bhInitialAngularFactor: initialSettings.bhInitialAngularFactor ?? config.defaultBHInitialAngularFactor,
+        bhGravityFactor: initialSettings.bhGravityFactor ?? config.defaultBHGravityFactor,
+        chunkMaxSpeedThreshold: initialSettings.chunkMaxSpeedThreshold ?? config.defaultChunkMaxSpeed,
+        coreExplosionDuration: initialSettings.coreExplosionDuration ?? config.defaultCoreExplosionDuration,
+        coreImplosionDuration: initialSettings.coreImplosionDuration ?? config.defaultCoreImplosionDuration,
+        craterScalingC: initialSettings.craterScalingC ?? config.defaultCraterScalingC,
+        keToMassEjectEta: initialSettings.keToMassEjectEta ?? config.defaultKEToMassEjectEta,
+        bhEnergyMultiplier: initialSettings.bhEnergyMultiplier ?? config.defaultBHEnergyMultiplier,
+
+        // Client-only or derived settings
+        gameFps: config.GAME_FPS,
+        clientShipDefaultHealth: 100, 
+    };
+
+    const localPlayerShip = new Ship(
+        authoritativeLocalPlayerData?.userId || `local_init_id_${Date.now()}`, // Use userId
+        authoritativeLocalPlayerData?.playerName || 'LocalPlayer',
+        authoritativeLocalPlayerData?.x !== undefined ? authoritativeLocalPlayerData.x : WORLD_CENTER_X + config.SHIP_INITIAL_X_OFFSET_PX,
+        authoritativeLocalPlayerData?.y !== undefined ? authoritativeLocalPlayerData.y : WORLD_CENTER_Y + config.SHIP_INITIAL_Y_OFFSET_PX,
+        authoritativeLocalPlayerData?.angle !== undefined ? authoritativeLocalPlayerData.angle : -Math.PI / 2,
+        authoritativeLocalPlayerData?.shipColor || config.SHIP_COLOR,
+        authoritativeLocalPlayerData?.health !== undefined ? authoritativeLocalPlayerData.health : settings.clientShipDefaultHealth, 
+        authoritativeLocalPlayerData?.isAlive !== undefined ? authoritativeLocalPlayerData.isAlive : true                     
+    );
+    localPlayerShip.isLocalPlayer = true;
+    if(authoritativeLocalPlayerData) { 
+        localPlayerShip.health = authoritativeLocalPlayerData.health;
+        localPlayerShip.isAlive = authoritativeLocalPlayerData.isAlive;
+        // A local player is never derelict
+        localPlayerShip.isDerelict = false; 
+    }
+
+    currentState = {
+        settings: settings,
+        planets: [], 
+        particles: [], chunks: [], bhParticles: [], projectiles: [],
+        ship: localPlayerShip, 
+        remotePlayers: {}, // Keyed by userId now
+        clickState: 'idle', firstClickCoords: null, currentMousePos: null, worldMousePos: null,
+        canvasWidth: canvasWidth, canvasHeight: canvasHeight,
+    };
+
+    if (serverPlanets) {
+        currentState.planets = serverPlanets.map(serverPlanet => {
+            return { ...serverPlanet }; 
+        });
+        console.log(`   Populated ${currentState.planets.length} planets from server data.`);
+    } else {
+        console.warn("   No planet data received from server, or data was malformed during init. World will be empty of planets.");
+    }
+    
+    updateRemotePlayerShips(); 
+
+    console.log(`>>> Client gameState Initialized. Local Ship ID: ${currentState.ship.id}, HP: ${currentState.ship.health}, Alive: ${currentState.ship.isAlive}. Planets loaded: ${currentState.planets.length}`);
+}
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_END=initializeStateFunction##
+
+
+export function updateRemotePlayerShips() {
+    if (!currentState || !currentState.settings) {
+        return;
+    }
+    const networkPlayersData = getClientSidePlayers(); // Returns player data keyed by userId
+    const myActualUserId = getMyUserId(); 
+
+    // Iterate over players from the network data (source of truth)
+    for (const userIdFromServer in networkPlayersData) {
+        const playerDataFromServer = networkPlayersData[userIdFromServer]; 
+        
+        // This should not happen, but as a safeguard.
+        if (!playerDataFromServer) { 
+            if(currentState.remotePlayers[userIdFromServer]) { 
+                console.log(`[GameState] Removing stale remote player ${userIdFromServer} from remotePlayers.`);
+                delete currentState.remotePlayers[userIdFromServer];
             }
+            continue;
         }
 
-
-        if (!this.isAlive && this.isLocalPlayer) {
-            this.isRotatingLeft = false;
-            this.isRotatingRight = false;
-            return;
+        // Skip our own ship
+        if (userIdFromServer === myActualUserId) {
+            continue; 
         }
-
-        if (this.isLocalPlayer) {
-            if (this.isRotatingLeft) {
-                this.angle -= config.SHIP_TURN_RATE_RAD_FRAME;
-            }
-            if (this.isRotatingRight) {
-                this.angle += config.SHIP_TURN_RATE_RAD_FRAME;
-            }
-            this.angle = (this.angle + Math.PI * 4) % (Math.PI * 2);
-
-            this.updateSendThrottle++;
-            if (this.updateSendThrottle >= this.UPDATE_SEND_INTERVAL) {
-                this.updateSendThrottle = 0;
-                if (Math.abs(this.x - this.lastSentState.x) > 0.1 ||
-                    Math.abs(this.y - this.lastSentState.y) > 0.1 ||
-                    Math.abs(this.angle - this.lastSentState.angle) > 0.01) {
-
-                    const shipState = { x: this.x, y: this.y, angle: this.angle };
-                    sendShipUpdate(shipState);
-                    this.lastSentState = { ...shipState };
-                }
-            }
+        
+        // If this remote player is new to us, create a Ship instance
+        if (!currentState.remotePlayers[userIdFromServer]) {
+            currentState.remotePlayers[userIdFromServer] = new Ship(
+                userIdFromServer, // The ID is now the persistent userId
+                playerDataFromServer.playerName, 
+                playerDataFromServer.x, 
+                playerDataFromServer.y,
+                playerDataFromServer.angle, 
+                playerDataFromServer.shipColor,
+                playerDataFromServer.health,    
+                playerDataFromServer.isAlive    
+            );
+            currentState.remotePlayers[userIdFromServer].isLocalPlayer = false;
         }
+        
+        // Always update the state of the existing remote ship instance
+        const remoteShip = currentState.remotePlayers[userIdFromServer];
+        remoteShip.setState(
+            playerDataFromServer.x, 
+            playerDataFromServer.y, 
+            playerDataFromServer.angle,
+            playerDataFromServer.health,    
+            playerDataFromServer.isAlive    
+        );
+        remoteShip.name = playerDataFromServer.playerName; 
+        remoteShip.defaultColor = playerDataFromServer.shipColor;
 
-        if (this.fireCooldown > 0) {
-            this.fireCooldown--;
+        // **NEW**: Handle derelict state based on 'isConnected'
+        remoteShip.isDerelict = !playerDataFromServer.isConnected;
+        
+        if (remoteShip.hitFlashTimer <= 0 && !remoteShip.isDerelict) {
+             remoteShip.color = playerDataFromServer.shipColor;
         }
     }
 
-
-    fire() {
-        // console.log(`[Ship ${this.id}] attempting fire. isLocalPlayer: ${this.isLocalPlayer}, isAlive: ${this.isAlive}, fireCooldown: ${this.fireCooldown}`);
-        if (!this.isLocalPlayer || this.fireCooldown > 0 || !this.isAlive) {
-            return null;
-        }
-
-        this.fireCooldown = this.fireRate;
-
-        const state = getState();
-        if (!state || !state.settings) {
-            console.error("Ship.fire(): Cannot access game state or settings.");
-            return null;
-        }
-
-        const muzzleOffsetX = Math.cos(this.angle) * this.size * config.SHIP_PROJECTILE_MUZZLE_OFFSET_FACTOR;
-        const muzzleOffsetY = Math.sin(this.angle) * this.size * config.SHIP_PROJECTILE_MUZZLE_OFFSET_FACTOR;
-        const startX = this.x + muzzleOffsetX;
-        const startY = this.y + muzzleOffsetY;
-
-        const projectileData = {
-            ownerShipId: this.id,
-            startX: startX,
-            startY: startY,
-            angle: this.angle,
-            initialSpeedInternalPxFrame: state.settings.projectileSpeed,
-            massKg: state.settings.projectileMass,
-        };
-        // console.log(`[Ship ${this.id}] FIRING. Data:`, projectileData);
-        return projectileData;
-    }
-
-
-    setRotating(left, right) {
-        // console.log(`[Ship ${this.id}] setRotating called. isLocalPlayer (at call time): ${this.isLocalPlayer}, isAlive: ${this.isAlive}, left: ${left}, right: ${right}`);
-        if (this.isLocalPlayer && this.isAlive) {
-            this.isRotatingLeft = left;
-            this.isRotatingRight = right;
-            // console.log(`[Ship ${this.id}] setRotating: flags set - isRotatingLeft=${this.isRotatingLeft}, isRotatingRight=${this.isRotatingRight}`);
-        } else if (this.isLocalPlayer && !this.isAlive) {
-            this.isRotatingLeft = false;
-            this.isRotatingRight = false;
-        }
-    }
-
-    // **** NEW: Method to call when ship takes a hit ****
-    takeHit() {
-        if (!this.isAlive) return; // Don't flash if already destroyed
-
-        this.hitFlashTimer = this.HIT_FLASH_DURATION;
-        this.color = this.hitColor; // Immediately change to hit color
-        console.log(`[Ship ${this.id}] takeHit called. Flash timer set to ${this.hitFlashTimer}. Color set to: ${this.color}`); // Add console log
-    }
-
-
-    setState(x, y, angle, health, isAlive) {
-        if (!this.isLocalPlayer) {
-            this.x = x;
-            this.y = y;
-            this.angle = angle;
-            if (health !== undefined) this.health = health;
-            if (isAlive !== undefined) {
-                const previousAliveState = this.isAlive;
-                this.isAlive = isAlive;
-                if (previousAliveState && !this.isAlive) {
-                    // Ship was just marked as not alive (destroyed) by server update
-                    // TODO: Could trigger client-side explosion particles here for remote ships
-                    // console.log(`[Ship ${this.id}] Remote ship marked as destroyed by server state.`);
-                } else if (!previousAliveState && this.isAlive) {
-                     // Ship was just respawned by server update
-                     this.color = this.defaultColor; // Ensure color is reset on respawn
-                    // console.log(`[Ship ${this.id}] Remote ship marked as respawned by server state.`);
-                }
-            }
+    // Clean up: remove any remote players in our state that are no longer in the network data
+    for (const userIdInState in currentState.remotePlayers) {
+        if (!networkPlayersData[userIdInState]) { 
+            console.log(`[GameState] Cleaning up. Removing remote player ${userIdInState} not in network data.`);
+            delete currentState.remotePlayers[userIdInState];
         }
     }
 }
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_END=ShipClass##
+
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=getStateFunctions##
+export function getState() { return currentState; }
+export function getSettings() { return currentState?.settings; } 
+export function getMyPlayerData() { 
+    return currentState?.ship;
+}
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_END=getStateFunctions##
+
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_END=gameStateFileContent##

@@ -1,9 +1,9 @@
-/* File: public/js/state/gameState.js */
 // js/state/gameState.js
 
 import * as config from '../config.js';
 import { Ship } from '../entities/Ship.js';
-import { getMyPlayerId as getSocketIdForLocalPlayer, getClientSidePlayers } from '../network.js'; 
+// Import using a clearer alias, as getMyPlayerId now returns the userId.
+import { getMyPlayerId as getMyUserId, getClientSidePlayers } from '../network.js'; 
 
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=gameStateFileContent##
@@ -77,11 +77,8 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
         chunkBoundsBuffer: getSyncedValue(serverPhysics, 'chunkBoundsBuffer', undefined, 200),
         referencePlanetMassForBHFactor: getSyncedValue(serverPhysics, 'referencePlanetMassForBHFactor', config.REFERENCE_PLANET_MASS_FOR_BH_FACTOR, 1e11),
         bhEventHorizonRadiusPx: getSyncedValue(serverPhysics, 'bhEventHorizonRadiusPx', config.DEFAULT_BH_EVENT_HORIZON_RADIUS, 30),
-
-        // --- BEGIN MODIFICATION: Receive new projectile deactivation constants ---
         projectileBoundsBuffer: getSyncedValue(serverPhysics, 'projectileBoundsBuffer', undefined, 500),
         projectileMaxLifespanFrames: getSyncedValue(serverPhysics, 'projectileMaxLifespanFrames', undefined, 4000),
-        // --- END MODIFICATION ---
 
         // HUD-Modifiable Settings
         shipZoomAttractFactor: initialSettings.shipZoomAttractFactor ?? config.DEFAULT_SHIP_ZOOM_ATTRACT_FACTOR,
@@ -117,7 +114,7 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
     };
 
     const localPlayerShip = new Ship(
-        authoritativeLocalPlayerData?.socketId || `local_init_id_${Date.now()}`, 
+        authoritativeLocalPlayerData?.userId || `local_init_id_${Date.now()}`, // Use userId
         authoritativeLocalPlayerData?.playerName || 'LocalPlayer',
         authoritativeLocalPlayerData?.x !== undefined ? authoritativeLocalPlayerData.x : WORLD_CENTER_X + config.SHIP_INITIAL_X_OFFSET_PX,
         authoritativeLocalPlayerData?.y !== undefined ? authoritativeLocalPlayerData.y : WORLD_CENTER_Y + config.SHIP_INITIAL_Y_OFFSET_PX,
@@ -130,6 +127,8 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
     if(authoritativeLocalPlayerData) { 
         localPlayerShip.health = authoritativeLocalPlayerData.health;
         localPlayerShip.isAlive = authoritativeLocalPlayerData.isAlive;
+        // A local player is never derelict
+        localPlayerShip.isDerelict = false; 
     }
 
     currentState = {
@@ -137,7 +136,7 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
         planets: [], 
         particles: [], chunks: [], bhParticles: [], projectiles: [],
         ship: localPlayerShip, 
-        remotePlayers: {},     
+        remotePlayers: {}, // Keyed by userId now
         clickState: 'idle', firstClickCoords: null, currentMousePos: null, worldMousePos: null,
         canvasWidth: canvasWidth, canvasHeight: canvasHeight,
     };
@@ -162,26 +161,31 @@ export function updateRemotePlayerShips() {
     if (!currentState || !currentState.settings) {
         return;
     }
-    const networkPlayersData = getClientSidePlayers(); 
-    const myActualSocketId = getSocketIdForLocalPlayer(); 
+    const networkPlayersData = getClientSidePlayers(); // Returns player data keyed by userId
+    const myActualUserId = getMyUserId(); 
 
-    for (const socketIdFromServer in networkPlayersData) {
-        const playerDataFromServer = networkPlayersData[socketIdFromServer]; 
+    // Iterate over players from the network data (source of truth)
+    for (const userIdFromServer in networkPlayersData) {
+        const playerDataFromServer = networkPlayersData[userIdFromServer]; 
+        
+        // This should not happen, but as a safeguard.
         if (!playerDataFromServer) { 
-            if(currentState.remotePlayers[socketIdFromServer]) { 
-                console.log(`[GameState] Removing stale remote player ${socketIdFromServer} from remotePlayers.`);
-                delete currentState.remotePlayers[socketIdFromServer];
+            if(currentState.remotePlayers[userIdFromServer]) { 
+                console.log(`[GameState] Removing stale remote player ${userIdFromServer} from remotePlayers.`);
+                delete currentState.remotePlayers[userIdFromServer];
             }
             continue;
         }
 
-        if (socketIdFromServer === myActualSocketId) {
+        // Skip our own ship
+        if (userIdFromServer === myActualUserId) {
             continue; 
         }
         
-        if (!currentState.remotePlayers[socketIdFromServer]) {
-            currentState.remotePlayers[socketIdFromServer] = new Ship(
-                socketIdFromServer, 
+        // If this remote player is new to us, create a Ship instance
+        if (!currentState.remotePlayers[userIdFromServer]) {
+            currentState.remotePlayers[userIdFromServer] = new Ship(
+                userIdFromServer, // The ID is now the persistent userId
                 playerDataFromServer.playerName, 
                 playerDataFromServer.x, 
                 playerDataFromServer.y,
@@ -190,26 +194,34 @@ export function updateRemotePlayerShips() {
                 playerDataFromServer.health,    
                 playerDataFromServer.isAlive    
             );
-            currentState.remotePlayers[socketIdFromServer].isLocalPlayer = false;
-        } else {
-            currentState.remotePlayers[socketIdFromServer].setState(
-                playerDataFromServer.x, 
-                playerDataFromServer.y, 
-                playerDataFromServer.angle,
-                playerDataFromServer.health,    
-                playerDataFromServer.isAlive    
-            );
-            currentState.remotePlayers[socketIdFromServer].name = playerDataFromServer.playerName; 
-            currentState.remotePlayers[socketIdFromServer].defaultColor = playerDataFromServer.shipColor;
-            if (currentState.remotePlayers[socketIdFromServer].hitFlashTimer <= 0) {
-                 currentState.remotePlayers[socketIdFromServer].color = playerDataFromServer.shipColor;
-            }
+            currentState.remotePlayers[userIdFromServer].isLocalPlayer = false;
+        }
+        
+        // Always update the state of the existing remote ship instance
+        const remoteShip = currentState.remotePlayers[userIdFromServer];
+        remoteShip.setState(
+            playerDataFromServer.x, 
+            playerDataFromServer.y, 
+            playerDataFromServer.angle,
+            playerDataFromServer.health,    
+            playerDataFromServer.isAlive    
+        );
+        remoteShip.name = playerDataFromServer.playerName; 
+        remoteShip.defaultColor = playerDataFromServer.shipColor;
+
+        // **NEW**: Handle derelict state based on 'isConnected'
+        remoteShip.isDerelict = !playerDataFromServer.isConnected;
+        
+        if (remoteShip.hitFlashTimer <= 0 && !remoteShip.isDerelict) {
+             remoteShip.color = playerDataFromServer.shipColor;
         }
     }
-    for (const socketIdInState in currentState.remotePlayers) {
-        if (!networkPlayersData[socketIdInState]) { 
-            console.log(`[GameState] Cleaning up. Removing remote player ${socketIdInState} not in network data.`);
-            delete currentState.remotePlayers[socketIdInState];
+
+    // Clean up: remove any remote players in our state that are no longer in the network data
+    for (const userIdInState in currentState.remotePlayers) {
+        if (!networkPlayersData[userIdInState]) { 
+            console.log(`[GameState] Cleaning up. Removing remote player ${userIdInState} not in network data.`);
+            delete currentState.remotePlayers[userIdInState];
         }
     }
 }

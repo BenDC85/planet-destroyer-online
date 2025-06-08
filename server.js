@@ -1,4 +1,3 @@
-/* File: server.js */
 // server.js for Planet Destroyer Online
 
 
@@ -49,8 +48,8 @@ const SV_BH_DRAG_COEFFICIENT_MAX = 0.100;
 const SV_PROJECTILE_UPDATE_INTERVAL_MS = 50;
 const SV_PROJECTILE_SIMULATION_FPS = 60;
 const SV_PROJECTILE_SECONDS_PER_FRAME = 1 / SV_PROJECTILE_SIMULATION_FPS;
-const SV_PROJECTILE_MAX_LIFESPAN_FRAMES = 4000;
-const SV_PROJECTILE_BOUNDS_BUFFER = 500;
+const SV_PROJECTILE_MAX_LIFESPAN_FRAMES = 9999; // Increased
+const SV_PROJECTILE_BOUNDS_BUFFER = 2000; // Increased
 const SV_PROJECTILE_SIZE_PX = 5;
 const SV_PROJECTILE_MIN_MASS_KG = 1;
 const SV_PROJECTILE_MAX_MASS_KG = 5000;
@@ -92,9 +91,8 @@ const SV_CHUNK_POINT_DISTANCE_FACTOR_MIN = 0.6;
 const SV_CHUNK_POINT_DISTANCE_FACTOR_RANDOM_RANGE = 0.8;
 const SV_CHUNK_POINT_ANGLE_INCREMENT_BASE_FACTOR = 1.5;
 const SV_CHUNK_POINT_ANGLE_RANDOM_FACTOR = 0.5;
-const SV_CHUNK_BOUNDS_BUFFER = 200;
+const SV_CHUNK_BOUNDS_BUFFER = 2000; // Increased
 
-// --- BEGIN: Authoritative Physics Constants Bundle ---
 const SV_PHYSICS_CONSTANTS = {
     G: SV_G,
     pixelsPerMeter: SV_PIXELS_PER_METER,
@@ -108,15 +106,12 @@ const SV_PHYSICS_CONSTANTS = {
     chunkBoundsBuffer: SV_CHUNK_BOUNDS_BUFFER,
     referencePlanetMassForBHFactor: SV_REFERENCE_PLANET_MASS_FOR_BH_FACTOR,
     bhEventHorizonRadiusPx: SV_BH_EVENT_HORIZON_RADIUS_PX,
-    // --- BEGIN MODIFICATION: Add missing projectile constants ---
     projectileBoundsBuffer: SV_PROJECTILE_BOUNDS_BUFFER,
     projectileMaxLifespanFrames: SV_PROJECTILE_MAX_LIFESPAN_FRAMES
-    // --- END MODIFICATION ---
 };
-// --- END: Authoritative Physics Constants Bundle ---
 
 // Ship Combat & Spawn Config
-const SV_SHIP_RADIUS_PX = 12.5;
+const SV_SHIP_RADIUS_PX = 30; // Increased ship hitbox radius
 const SV_SHIP_DEFAULT_HEALTH = 100;
 const SV_PROJECTILE_DAMAGE = 25;
 const SV_CHUNK_DAMAGE_MIN = 5;
@@ -126,6 +121,8 @@ const SV_SHIP_RESPAWN_DELAY_MS = 5000;
 const SV_SHIP_SPAWN_SAFETY_RADIUS_FACTOR = 3.0;
 const SV_MAX_PLAYER_SPAWN_ATTEMPTS = 100;
 const SV_PLAYER_SPAWN_WORLD_PADDING_FACTOR = 5;
+const SV_MAX_PROJECTILES_PER_PLAYER = 20; // New Rule
+const DERELICT_CLEANUP_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes for derelict cleanup
 // --- End Server-Side Config ---
 
 const app = express();
@@ -141,8 +138,8 @@ console.log("Supabase client initialized.");
 const publicDirectoryPath = path.join(__dirname, 'public');
 app.use(express.static(publicDirectoryPath));
 
-let players = {};
-let playerNumberAssigner = 0;
+// --- BEGIN: State Variables ---
+let playerData = {}; // Keyed by persistent userId
 const MAX_PLAYERS = 5;
 let serverPlanetsState = [];
 let nextServerPlanetId = 0;
@@ -150,6 +147,8 @@ let serverProjectiles = [];
 let nextProjectileId = 0;
 let serverChunks = [];
 let nextServerChunkId = 0;
+// --- END: State Variables ---
+
 
 // =================================================================================
 // START OF UTILITY FUNCTIONS
@@ -335,6 +334,13 @@ function generatePlanetsOnServer(numPlanetsOverride = null) {
 // END OF UTILITY FUNCTIONS
 // =================================================================================
 
+// --- BEGIN: Health Check Endpoint ---
+// This route is used by the hosting platform (Render) to verify the server is alive.
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
+// --- END: Health Check Endpoint ---
+
 generatePlanetsOnServer();
 io.on('connection', (socket) => {
     console.log(`--- Client connected: ${socket.id} (Awaiting join request) ---`);
@@ -353,44 +359,76 @@ io.on('connection', (socket) => {
         }
         const trimmedUserId = userId.trim();
         const trimmedPlayerName = playerName.trim();
-
-        for (const id in players) {
-            if (players[id].userId === trimmedUserId) {
-                socket.emit('join_fail', 'This User ID is already in the game. Try a different ID.');
+        
+        const connectedPlayersCount = Object.values(playerData).filter(p => p.isConnected).length;
+        
+        // --- RECONNECT LOGIC ---
+        if (playerData[trimmedUserId]) {
+            const existingPlayer = playerData[trimmedUserId];
+            if (existingPlayer.isConnected) {
+                console.warn(`[SERVER] User ${trimmedUserId} (${existingPlayer.playerName}) tried to connect again but is already connected. Rejecting.`);
+                socket.emit('join_fail', 'This user is already connected in another session.');
                 socket.disconnect(true);
                 return;
             }
+
+            // This is a valid reconnection
+            clearTimeout(existingPlayer.cleanupTimer);
+            existingPlayer.cleanupTimer = null;
+            existingPlayer.socketId = socket.id;
+            existingPlayer.isConnected = true;
+            
+            console.log(`[SERVER] Player ${existingPlayer.playerName} (${trimmedUserId}) RECONNECTED with new socket ${socket.id}.`);
+            io.emit('server_message', `${existingPlayer.playerName} has reconnected.`);
+            
+            // If ship was destroyed while disconnected, respawn them now.
+            if (!existingPlayer.isAlive) {
+                const respawnPoint = findRandomSafeSpawnPoint();
+                existingPlayer.x = respawnPoint.x;
+                existingPlayer.y = respawnPoint.y;
+                existingPlayer.health = SV_SHIP_DEFAULT_HEALTH;
+                existingPlayer.isAlive = true;
+                existingPlayer.angle = Math.random() * Math.PI * 2;
+                io.emit('server_message', `${existingPlayer.playerName}'s ship was destroyed while they were away. Respawning now.`);
+            }
+
+            // Let everyone know they are back and what their current state is
+            io.emit('player_reconnected', existingPlayer);
+
+        } 
+        // --- NEW PLAYER LOGIC ---
+        else {
+            if (connectedPlayersCount >= MAX_PLAYERS) {
+                socket.emit('join_fail', 'Sorry, the game is currently full.');
+                socket.disconnect(true);
+                return;
+            }
+
+            const spawnPoint = findRandomSafeSpawnPoint();
+            const initialAngle = Math.random() * Math.PI * 2;
+            
+            playerData[trimmedUserId] = {
+                userId: trimmedUserId,
+                socketId: socket.id,
+                playerName: trimmedPlayerName,
+                shipColor: shipColor,
+                x: spawnPoint.x,
+                y: spawnPoint.y,
+                angle: initialAngle,
+                health: SV_SHIP_DEFAULT_HEALTH,
+                isAlive: true,
+                isConnected: true,
+                lastFireTime: 0,
+                ping: 0,
+                cleanupTimer: null,
+                playerNumber: connectedPlayersCount + 1 // Simple number assignment
+            };
+            
+            console.log(`Socket ${socket.id} joined as Player ${playerData[trimmedUserId].playerNumber} (Name: \"${trimmedPlayerName}\", HP: ${playerData[trimmedUserId].health}) at (${spawnPoint.x.toFixed(0)}, ${spawnPoint.y.toFixed(0)})`);
+            socket.broadcast.emit('player_joined', playerData[trimmedUserId]);
+            io.emit('server_message', `${trimmedPlayerName} has joined. (${connectedPlayersCount + 1}/${MAX_PLAYERS})`);
         }
-        if (Object.keys(players).length >= MAX_PLAYERS) {
-            socket.emit('join_fail', 'Sorry, the game is currently full.');
-            socket.disconnect(true);
-            return;
-        }
-
-        if (Object.keys(players).length === 0) {
-            playerNumberAssigner = 0;
-        }
-        playerNumberAssigner++;
-        const spawnPoint = findRandomSafeSpawnPoint();
-        const initialAngle = Math.random() * Math.PI * 2;
-
-        players[socket.id] = {
-            socketId: socket.id,
-            playerNumber: playerNumberAssigner,
-            userId: trimmedUserId,
-            playerName: trimmedPlayerName,
-            shipColor: shipColor,
-            x: spawnPoint.x,
-            y: spawnPoint.y,
-            angle: initialAngle,
-            health: SV_SHIP_DEFAULT_HEALTH,
-            isAlive: true,
-            lastFireTime: 0,
-            ping: 0
-        };
-
-        console.log(`Socket ${socket.id} joined as Player ${players[socket.id].playerNumber} (Name: \"${trimmedPlayerName}\", HP: ${players[socket.id].health}) at (${spawnPoint.x.toFixed(0)}, ${spawnPoint.y.toFixed(0)})`);
-
+        
         const serverConfig = {
             worldMinX: SV_WORLD_MIN_X,
             worldMaxX: SV_WORLD_MAX_X,
@@ -400,30 +438,28 @@ io.on('connection', (socket) => {
         };
 
         socket.emit('join_success', {
-            myPlayerData: players[socket.id],
-            allPlayers: players,
+            myPlayerData: playerData[trimmedUserId],
+            allPlayers: playerData,
             planets: serverPlanetsState,
             serverConfig: serverConfig
         });
-
-        socket.broadcast.emit('player_joined', players[socket.id]);
-        io.emit('server_message', `${trimmedPlayerName} (Player ${players[socket.id].playerNumber}) has joined. (${Object.keys(players).length}/${MAX_PLAYERS})`);
     });
 
     socket.on('ship_update', (shipData) => {
-        const player = players[socket.id];
-        if (player && player.isAlive && shipData) {
+        const player = Object.values(playerData).find(p => p.socketId === socket.id);
+        if (player && player.isAlive && player.isConnected && shipData) {
             player.x = shipData.x;
             player.y = shipData.y;
             player.angle = shipData.angle;
             player.ping = shipData.ping || 0;
-            socket.broadcast.emit('player_moved', { socketId: socket.id, x: shipData.x, y: shipData.y, angle: shipData.angle });
+            // Note: Broadcasting userId instead of socketId now
+            socket.broadcast.emit('player_moved', { userId: player.userId, x: shipData.x, y: shipData.y, angle: shipData.angle });
         }
     });
 
     socket.on('request_fire_projectile', (projectileData) => {
-        const player = players[socket.id];
-        if (!player || !player.isAlive) {
+        const player = Object.values(playerData).find(p => p.socketId === socket.id);
+        if (!player || !player.isAlive || !player.isConnected) {
             return;
         }
         if (!projectileData || typeof projectileData.startX !== 'number' || typeof projectileData.massKg !== 'number' || !projectileData.tempId) {
@@ -437,6 +473,24 @@ io.on('connection', (socket) => {
             return;
         }
         player.lastFireTime = now;
+
+        // --- FIFO Projectile Limit Logic ---
+        const playerProjectiles = serverProjectiles.filter(p => p.ownerUserId === player.userId && p.isActive);
+        if (playerProjectiles.length >= SV_MAX_PROJECTILES_PER_PLAYER) {
+            let oldestProj = null;
+            let maxFrames = -1;
+            for (const proj of playerProjectiles) {
+                if (proj.framesAlive > maxFrames) {
+                    maxFrames = proj.framesAlive;
+                    oldestProj = proj;
+                }
+            }
+            if (oldestProj) {
+                oldestProj.isActive = false;
+                // No need to emit a special event, the regular 'projectiles_update' will handle its removal.
+            }
+        }
+
         const validatedMass = Math.max(SV_PROJECTILE_MIN_MASS_KG, Math.min(projectileData.massKg, SV_PROJECTILE_MAX_MASS_KG));
         const serverProjId = `srv_proj_${nextProjectileId++}`;
         const initialSpeed = projectileData.initialSpeedInternalPxFrame;
@@ -445,7 +499,7 @@ io.on('connection', (socket) => {
         
         const newServerProjectile = {
             id: serverProjId,
-            ownerShipId: player.socketId,
+            ownerUserId: player.userId, // Use persistent userId
             x: projectileData.startX,
             y: projectileData.startY,
             prevX: projectileData.startX,
@@ -469,7 +523,10 @@ io.on('connection', (socket) => {
     });
 
     socket.on('request_world_reset', (clientSuggestedSettings) => {
-        console.log(`[SERVER] Received 'request_world_reset' from ${players[socket.id]?.playerName || socket.id}.`);
+        const requester = Object.values(playerData).find(p => p.socketId === socket.id);
+        if (!requester) return;
+
+        console.log(`[SERVER] Received 'request_world_reset' from ${requester.playerName}.`);
         let numPlanetsForReset = SV_DEFAULT_PLANET_COUNT;
         if (clientSuggestedSettings && typeof clientSuggestedSettings.planetCount === 'number' && clientSuggestedSettings.planetCount >= 1 && clientSuggestedSettings.planetCount <= 50) {
             numPlanetsForReset = clientSuggestedSettings.planetCount;
@@ -479,7 +536,8 @@ io.on('connection', (socket) => {
         nextProjectileId = 0;
         serverChunks = [];
         nextServerChunkId = 0;
-        Object.values(players).forEach((player) => {
+
+        Object.values(playerData).forEach((player) => {
             const spawnPoint = findRandomSafeSpawnPoint();
             player.x = spawnPoint.x;
             player.y = spawnPoint.y;
@@ -487,30 +545,45 @@ io.on('connection', (socket) => {
             player.lastFireTime = 0;
             player.health = SV_SHIP_DEFAULT_HEALTH;
             player.isAlive = true;
-            io.to(player.socketId).emit('player_state_reset', player);
+            if (player.isConnected) {
+                io.to(player.socketId).emit('player_state_reset', player);
+            }
         });
         const newWorldData = {
             planets: serverPlanetsState,
         };
         io.emit('world_reset_data', newWorldData);
-        io.emit('server_message', `The world has been reset by ${players[socket.id]?.playerName || 'an admin'}!`);
+        io.emit('server_message', `The world has been reset by ${requester.playerName}!`);
     });
 
     socket.on('disconnect', () => {
-        const disconnectedPlayerData = players[socket.id];
-        if (disconnectedPlayerData) {
-            console.log(`--- Client disconnected: ${socket.id} (was Player ${disconnectedPlayerData.playerNumber}, Name: \"${disconnectedPlayerData.playerName}\") ---`);
-            delete players[socket.id];
-            io.emit('player_left', { socketId: socket.id, playerName: disconnectedPlayerData.playerName });
-            io.emit('server_message', `${disconnectedPlayerData.playerName} has disconnected. (${Object.keys(players).length}/${MAX_PLAYERS})`);
-            if (Object.keys(players).length === 0) {
-                playerNumberAssigner = 0;
+        const disconnectedPlayer = Object.values(playerData).find(p => p.socketId === socket.id);
+        if (disconnectedPlayer) {
+            console.log(`--- Client disconnected: ${socket.id} (was ${disconnectedPlayer.playerName}) ---`);
+            disconnectedPlayer.isConnected = false;
+            
+            // Let other clients know this player is now 'derelict'
+            io.emit('player_disconnected', { userId: disconnectedPlayer.userId, playerName: disconnectedPlayer.playerName });
+            const connectedPlayersCount = Object.values(playerData).filter(p => p.isConnected).length;
+            io.emit('server_message', `${disconnectedPlayer.playerName} has disconnected. (${connectedPlayersCount}/${MAX_PLAYERS})`);
+
+            // Start cleanup timer for the derelict ship
+            disconnectedPlayer.cleanupTimer = setTimeout(() => {
+                if (!disconnectedPlayer.isConnected) { // Check if they haven't reconnected in the meantime
+                    console.log(`[SERVER] Cleaning up derelict ship for ${disconnectedPlayer.playerName} (${disconnectedPlayer.userId}) after ${DERELICT_CLEANUP_TIMEOUT_MS / 1000}s.`);
+                    io.emit('player_removed', { userId: disconnectedPlayer.userId, playerName: disconnectedPlayer.playerName });
+                    delete playerData[disconnectedPlayer.userId];
+                }
+            }, DERELICT_CLEANUP_TIMEOUT_MS);
+
+            if (connectedPlayersCount === 0) {
                 console.log("All players disconnected. Resetting world and clearing entities.");
                 generatePlanetsOnServer();
                 serverProjectiles = [];
                 nextProjectileId = 0;
                 serverChunks = [];
                 nextServerChunkId = 0;
+                playerData = {}; // Clear all player data as everyone has left
             }
         } else {
             console.log(`--- Client disconnected: ${socket.id} (was not an active player or already removed) ---`);
@@ -626,7 +699,7 @@ function updateServerProjectiles() {
                     proj.isActive = false;
                     wasAbsorbedThisFrame = true;
                     io.emit('projectile_absorbed_by_bh', { projectileId: proj.id, blackHoleId: planet.id });
-                    console.log(`[SERVER] Projectile ${proj.id} absorbed by Black Hole ${planet.id}`);
+                    // console.log(`[SERVER] Projectile ${proj.id} absorbed by Black Hole ${planet.id}`);
                     return;
                 }
             } else if (planet.massKg > 0) {
@@ -658,35 +731,40 @@ function updateServerProjectiles() {
         proj.y += proj.vy;
         proj.framesAlive++;
         if (proj.isActive) {
-            for (const playerId in players) {
-                const player = players[playerId];
+            for (const player of Object.values(playerData)) {
+                // Derelict ships can still be hit.
                 if (!player.isAlive) continue;
                 const distSqToShip = serverDistanceSq(proj, player);
                 const collisionDist = SV_SHIP_RADIUS_PX + (SV_PROJECTILE_SIZE_PX / 2);
                 if (distSqToShip < collisionDist * collisionDist) {
                     proj.isActive = false;
                     player.health -= SV_PROJECTILE_DAMAGE;
-                    console.log(`[SERVER] Projectile ${proj.id} (owner: ${proj.ownerShipId}) HIT SHIP ${player.socketId}. Player Health: ${player.health}`);
-                    io.emit('ship_hit', { projectileId: proj.id, hitPlayerId: player.socketId, newHealth: player.health, shooterId: proj.ownerShipId });
+                    console.log(`[SERVER] Projectile ${proj.id} (owner: ${proj.ownerUserId}) HIT SHIP ${player.userId}. Player Health: ${player.health}`);
+                    io.emit('ship_hit', { projectileId: proj.id, hitPlayerId: player.userId, newHealth: player.health, shooterId: proj.ownerUserId });
                     if (player.health <= 0) {
                         player.isAlive = false;
                         player.health = 0;
-                        const killerName = players[proj.ownerShipId]?.playerName || (proj.ownerShipId === player.socketId ? 'Self' : 'Unknown');
-                        console.log(`[SERVER] Ship ${player.socketId} (${player.playerName}) DESTROYED by projectile ${proj.id} from ${killerName}.`);
-                        io.emit('ship_destroyed', { destroyedShipId: player.socketId, destroyedShipName: player.playerName, killerId: proj.ownerShipId, killerName: killerName });
-                        setTimeout(() => {
-                            if (players[player.socketId]) {
-                                const respawnPlayer = players[player.socketId];
-                                respawnPlayer.isAlive = true;
-                                respawnPlayer.health = SV_SHIP_DEFAULT_HEALTH;
-                                const respawnPoint = findRandomSafeSpawnPoint();
-                                respawnPlayer.x = respawnPoint.x;
-                                respawnPlayer.y = respawnPoint.y;
-                                respawnPlayer.angle = Math.random() * Math.PI * 2;
-                                console.log(`[SERVER] Ship ${respawnPlayer.socketId} (${respawnPlayer.playerName}) RESPAWNED.`);
-                                io.emit('player_respawned', respawnPlayer);
-                            }
-                        }, SV_SHIP_RESPAWN_DELAY_MS);
+                        const killerName = playerData[proj.ownerUserId]?.playerName || (proj.ownerUserId === player.userId ? 'Self' : 'Unknown');
+                        console.log(`[SERVER] Ship ${player.userId} (${player.playerName}) DESTROYED by projectile ${proj.id} from ${killerName}.`);
+                        io.emit('ship_destroyed', { destroyedShipId: player.userId, destroyedShipName: player.playerName, killerId: proj.ownerUserId, killerName: killerName });
+                        
+                        // Respawn only if the player is still connected.
+                        if (player.isConnected) {
+                            setTimeout(() => {
+                                // Double-check player exists and is still connected before respawning
+                                const respawnPlayer = playerData[player.userId];
+                                if (respawnPlayer && respawnPlayer.isConnected) {
+                                    respawnPlayer.isAlive = true;
+                                    respawnPlayer.health = SV_SHIP_DEFAULT_HEALTH;
+                                    const respawnPoint = findRandomSafeSpawnPoint();
+                                    respawnPlayer.x = respawnPoint.x;
+                                    respawnPlayer.y = respawnPoint.y;
+                                    respawnPlayer.angle = Math.random() * Math.PI * 2;
+                                    console.log(`[SERVER] Ship ${respawnPlayer.userId} (${respawnPlayer.playerName}) RESPAWNED.`);
+                                    io.emit('player_respawned', respawnPlayer);
+                                }
+                            }, SV_SHIP_RESPAWN_DELAY_MS);
+                        }
                     }
                     break;
                 }
@@ -711,9 +789,9 @@ function updateServerProjectiles() {
                     
                     let checkSegmentStart = { x: proj.prevX, y: proj.prevY };
                     let checkSegmentEnd = { x: proj.x, y: proj.y };
-                    const owner = players[proj.ownerShipId];
+                    const owner = playerData[proj.ownerUserId];
 
-                    if (owner && owner.ping > 0) {
+                    if (owner && owner.isConnected && owner.ping > 0) {
                         const latencySeconds = (owner.ping / 2) / 1000.0;
                         const framesToRewind = Math.round(latencySeconds / SV_PROJECTILE_SECONDS_PER_FRAME);
                         
@@ -757,7 +835,7 @@ function updateServerProjectiles() {
                         planet.craters.push(newCrater);
                         const craterArea = Math.PI * craterRadius_pixels * craterRadius_pixels;
                         planet.cumulativeCraterAreaEffect = (planet.cumulativeCraterAreaEffect || 0) + (craterArea / 2.0);
-                        console.log(`[SERVER] Projectile ${proj.id} HIT planet ${planet.id}. Mass: ${planet.massKg.toFixed(0)}kg, Radius: ${planet.radius.toFixed(1)}px, OrigMass: ${planet.originalMassKg.toExponential(2)}`);
+                        // console.log(`[SERVER] Projectile ${proj.id} HIT planet ${planet.id}. Mass: ${planet.massKg.toFixed(0)}kg, Radius: ${planet.radius.toFixed(1)}px, OrigMass: ${planet.originalMassKg.toExponential(2)}`);
                         io.emit('projectile_hit_planet', { projectileId: proj.id, planetId: planet.id, impactPoint: impact.point, crater: newCrater });
                         let destructionTriggered = false;
                         let destructionReason = "";
@@ -937,7 +1015,7 @@ function updateServerChunks() {
                         planet.craters.push(newCraterByChunk);
                         const craterArea = Math.PI * craterRadius_pixels_chunk * craterRadius_pixels_chunk;
                         planet.cumulativeCraterAreaEffect = (planet.cumulativeCraterAreaEffect || 0) + (craterArea / 2.0);
-                        console.log(`[SERVER] Chunk ${chunk.id} DAMAGED planet ${planet.id} at (${impact.point.x.toFixed(0)}, ${impact.point.y.toFixed(0)}). New Mass: ${planet.massKg.toFixed(0)}kg`);
+                        // console.log(`[SERVER] Chunk ${chunk.id} DAMAGED planet ${planet.id} at (${impact.point.x.toFixed(0)}, ${impact.point.y.toFixed(0)}). New Mass: ${planet.massKg.toFixed(0)}kg`);
                         io.emit('chunk_damaged_planet', { chunkId: chunk.id, planetId: planet.id, impactPoint: impact.point, newCrater: newCraterByChunk });
                         let destructionTriggered = false;
                         let destructionReason = "";
@@ -988,8 +1066,7 @@ function updateServerChunks() {
             }
         }
         if (chunk.isActive) {
-            for (const playerId in players) {
-                const player = players[playerId];
+            for (const player of Object.values(playerData)) {
                 if (!player.isAlive) continue;
                 const collisionDist = SV_SHIP_RADIUS_PX + (chunk.size || SV_CHUNK_DEFAULT_BASE_SIZE_MIN);
                 const distSqToShip = serverDistanceSq({ x: chunk.x, y: chunk.y }, player);
@@ -1002,26 +1079,29 @@ function updateServerChunks() {
                     damageDealt = Math.round(damageDealt);
                     damageDealt = Math.max(SV_CHUNK_DAMAGE_MIN, Math.min(damageDealt, SV_CHUNK_DAMAGE_MAX));
                     player.health -= damageDealt;
-                    console.log(`[SERVER] Chunk ${chunk.id} HIT SHIP ${player.socketId} for ${damageDealt} damage. Player Health: ${player.health}`);
-                    io.emit('ship_hit_by_chunk', { chunkId: chunk.id, hitPlayerId: player.socketId, newHealth: player.health, damageDealt: damageDealt });
+                    console.log(`[SERVER] Chunk ${chunk.id} HIT SHIP ${player.userId} for ${damageDealt} damage. Player Health: ${player.health}`);
+                    io.emit('ship_hit_by_chunk', { chunkId: chunk.id, hitPlayerId: player.userId, newHealth: player.health, damageDealt: damageDealt });
                     if (player.health <= 0) {
                         player.isAlive = false;
                         player.health = 0;
-                        console.log(`[SERVER] Ship ${player.socketId} (${player.playerName}) DESTROYED by chunk ${chunk.id}.`);
-                        io.emit('ship_destroyed_by_chunk', { destroyedShipId: player.socketId, destroyedShipName: player.playerName, chunkId: chunk.id });
-                        setTimeout(() => {
-                            if (players[player.socketId]) {
-                                const respawnPlayer = players[player.socketId];
-                                respawnPlayer.isAlive = true;
-                                respawnPlayer.health = SV_SHIP_DEFAULT_HEALTH;
-                                const respawnPoint = findRandomSafeSpawnPoint();
-                                respawnPlayer.x = respawnPoint.x;
-                                respawnPlayer.y = respawnPoint.y;
-                                respawnPlayer.angle = Math.random() * Math.PI * 2;
-                                console.log(`[SERVER] Ship ${respawnPlayer.socketId} (${respawnPlayer.playerName}) RESPAWNED after chunk collision.`);
-                                io.emit('player_respawned', respawnPlayer);
-                            }
-                        }, SV_SHIP_RESPAWN_DELAY_MS);
+                        console.log(`[SERVER] Ship ${player.userId} (${player.playerName}) DESTROYED by chunk ${chunk.id}.`);
+                        io.emit('ship_destroyed_by_chunk', { destroyedShipId: player.userId, destroyedShipName: player.playerName, chunkId: chunk.id });
+                        
+                        if (player.isConnected) {
+                            setTimeout(() => {
+                                const respawnPlayer = playerData[player.userId];
+                                if (respawnPlayer && respawnPlayer.isConnected) {
+                                    respawnPlayer.isAlive = true;
+                                    respawnPlayer.health = SV_SHIP_DEFAULT_HEALTH;
+                                    const respawnPoint = findRandomSafeSpawnPoint();
+                                    respawnPlayer.x = respawnPoint.x;
+                                    respawnPlayer.y = respawnPoint.y;
+                                    respawnPlayer.angle = Math.random() * Math.PI * 2;
+                                    console.log(`[SERVER] Ship ${respawnPlayer.userId} (${respawnPlayer.playerName}) RESPAWNED after chunk collision.`);
+                                    io.emit('player_respawned', respawnPlayer);
+                                }
+                            }, SV_SHIP_RESPAWN_DELAY_MS);
+                        }
                     }
                     break;
                 }
@@ -1081,15 +1161,13 @@ setInterval(updateServerProjectiles, 1000 / SV_PROJECTILE_SIMULATION_FPS);
 setInterval(updateServerChunks, 1000 / SV_CHUNK_SIMULATION_FPS);
 
 setInterval(() => {
-    if (Object.keys(players).length > 0) {
+    const connectedPlayerCount = Object.values(playerData).filter(p => p.isConnected).length;
+    if (connectedPlayerCount > 0) {
         const projectileUpdates = serverProjectiles.map(p => ({ id: p.id, x: p.x, y: p.y, vx: p.vx, vy: p.vy, isActive: p.isActive }));
         io.emit('projectiles_update', projectileUpdates);
-        if (serverChunks.length > 0) {
-            const chunkUpdates = serverChunks.map(c => ({ id: c.id, x: c.x, y: c.y, vx: c.vx, vy: c.vy, angle: c.angle, isActive: c.isActive }));
-            io.emit('chunks_update', chunkUpdates);
-        } else {
-            io.emit('chunks_update', []);
-        }
+        
+        const chunkUpdates = serverChunks.map(c => ({ id: c.id, x: c.x, y: c.y, vx: c.vx, vy: c.vy, angle: c.angle, isActive: c.isActive }));
+        io.emit('chunks_update', chunkUpdates);
     }
 }, SV_PROJECTILE_UPDATE_INTERVAL_MS);
 

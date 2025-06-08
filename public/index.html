@@ -6,33 +6,6 @@
     <title>Planet Destroyer Online</title>
     <link rel="stylesheet" href="style.css">
     <!-- <link rel="icon" type="image/png" href="favicon.png"> You'll need to add this if you have one -->
-    <style>
-        /* Styles specific to the game area, message log, and HUD layering */
-        body { font-family: Arial, sans-serif; margin: 0; background-color: #1a1a1a; color: #e0e0e0; overflow: hidden; }
-        /* .hidden is now in style.css */
-        /* .join-container and its children are now in style.css */
-
-        #messages {
-            position: absolute;
-            bottom: 20px; /* Adjusted to be above scrollbars if they appear */
-            left: 5px;
-            width: calc(100% - 310px); /* Adjust based on HUD width + scrollbar */
-            max-height: 100px;
-            overflow-y: auto;
-            background-color: rgba(0,0,0,0.6);
-            padding: 5px;
-            border-radius: 3px;
-            font-size: 0.8em;
-            z-index: 90; /* Below HUD */
-        }
-        #message-list { list-style-type: none; padding: 0; margin: 0; }
-        #message-list li { padding: 2px 0; border-bottom: 1px solid #444; }
-        #message-list li:last-child { border-bottom: none; }
-
-        #devHud { z-index: 100; } /* Ensure HUD is above game messages */
-        canvas#gameCanvas { display: block; } /* Ensure canvas is block for proper layout */
-
-    </style>
 </head>
 <body>
 
@@ -64,17 +37,16 @@
 
     <!-- Game Area (Initially hidden) -->
     <div id="game-content" class="hidden">
-        <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_START=hudContainer## -->
+        <!-- Development/Debug HUD -->
         <div id="devHud">
             <p><label>Status:</label> <span class="value" id="hud_status">Loading...</span></p>
             <p><label>Mass:</label> <span class="value" id="hud_massRemaining">-- / --</span></p>
             <p><label>Craters:</label> <span class="value" id="hud_craterCount">--</span></p>
             <p><label>Ship Angle:</label> <span class="value" id="hud_shipAngleValue">--</span></p>
-            <p><label>Ship Health:</label> <span class="value" id="hud_shipHealth">--</span></p> <!-- **** THIS IS THE NEW LINE **** -->
+            <p><label>Ship Health:</label> <span class="value" id="hud_shipHealth">--</span></p>
 
             <hr class="separator">
             <p class="section-title collapsible" data-target="inGameControls">In-Game Controls [-]</p>
-            <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_START=inGameControlsDiv## -->
             <div class="collapsible-content" id="inGameControls">
                 <p>
                      <label for="hud_damageRadiusInput" title="Crater radius from direct clicks. Suggest: 1-100">Click Damage Radius:</label>
@@ -113,11 +85,9 @@
                     <input type="checkbox" id="hud_persistentChunkDriftCheckbox" checked>
                 </p>
             </div>
-            <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_END=inGameControlsDiv## -->
 
             <hr class="separator">
             <p class="section-title collapsible" data-target="bhFxControls">Black Hole FX [+]</p>
-            <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_START=bhFxControlsDiv## -->
             <div class="collapsible-content collapsed" id="bhFxControls">
                 <p>
                     <label for="hud_bhDragFactorInput" title="Strength of drag near EH (0=none, 0.1=moderate). Max: 0.99">BH Drag Factor:</label>
@@ -181,11 +151,9 @@
                     <span class="value" id="hud_bhParticleMaxSizeValue">0.7</span>
                 </p>
             </div>
-            <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_END=bhFxControlsDiv## -->
 
              <hr class="separator">
              <p class="section-title collapsible" data-target="physicsTimingControls">Physics / Timing [+]</p>
-             <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_START=physicsTimingControlsDiv## -->
              <div class="collapsible-content collapsed" id="physicsTimingControls">
                 <p>
                     <label for="hud_planetGravityMultiplierInput" title="Scales gravity of normal planets. HUD 1.0 = 1M internal. Higher=Stronger.">Planet Gravity Mult (x 1M):</label>
@@ -229,11 +197,9 @@
                     <span class="value" id="hud_coreImplosionValue">22</span>
                 </p>
             </div>
-            <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_END=physicsTimingControlsDiv## -->
 
             <hr class="separator">
             <p class="section-title collapsible" data-target="setupControls">Setup [+]</p>
-            <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_START=setupControlsDiv## -->
              <div class="collapsible-content collapsed" id="setupControls">
                  <p>
                     <label for="hud_planetCountInput" title="Number of planets generated on Reset. 1-50">Planet Count:</label>
@@ -253,19 +219,21 @@
                 <button id="logSettingsButton" title="Log all current game settings to the console">Log Current Settings</button>
                 <button id="resetButton" title="Apply ALL current settings and restart">Reset Game</button>
             </div>
-            <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_END=setupControlsDiv## -->
         </div>
-        <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_END=hudContainer## -->
 
-        <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_START=canvasElement## -->
-        <canvas id="gameCanvas"></canvas>
-        <input type="range" id="horizontalScrollbar" class="scroll-bar horizontal">
-        <input type="range" id="verticalScrollbar" class="scroll-bar vertical">
-        <!-- ##AI_AUTOMATION::TARGET_ID_DEFINE_END=canvasElement## -->
+        <!-- Main Game and Log Layout Wrapper -->
+        <div id="game-wrapper">
+            <!-- Canvas and Scrollbars -->
+            <div id="canvas-container">
+                <canvas id="gameCanvas"></canvas>
+                <input type="range" id="horizontalScrollbar" class="scroll-bar horizontal">
+                <input type="range" id="verticalScrollbar" class="scroll-bar vertical">
+            </div>
 
-        <!-- Game Log / Server Messages Area -->
-        <div id="messages">
-            <ul id="message-list"></ul>
+            <!-- Game Log / Server Messages Container -->
+            <div id="message-container">
+                <ul id="message-list"></ul>
+            </div>
         </div>
     </div>
 

@@ -1,4 +1,3 @@
-/* File: public/js/network.js */
 // public/js/network.js
 
 import { initializeGame, stopGameLoop } from './main.js';
@@ -21,15 +20,13 @@ const joinMessageParagraph = document.getElementById('join-message');
 const messageList = document.getElementById('message-list');
 
 let myServerData = null;
-let allPlayersData = {};
+let allPlayersData = {}; // This will now be keyed by userId
 let serverPlanets = [];
 let serverConfig = {}; 
 
-// --- BEGIN MODIFICATION: Ping calculation variables ---
 let ping_rtt = 0;
 let ping_start_time;
-const PING_INTERVAL_MS = 2500; // Ping every 2.5 seconds
-// --- END MODIFICATION ---
+const PING_INTERVAL_MS = 2500;
 
 function initNetwork() {
     console.log("Network.js: Initializing...");
@@ -90,20 +87,15 @@ function setupSocketListeners() {
         if (joinGameButton && joinGameButton.disabled) {
              sendJoinRequest();
         }
-        // --- BEGIN MODIFICATION: Start pinging the server ---
         setInterval(() => {
             ping_start_time = Date.now();
             socket.emit('ping_from_client');
         }, PING_INTERVAL_MS);
-        // --- END MODIFICATION ---
     });
     
-    // --- BEGIN MODIFICATION: Add pong listener ---
     socket.on('pong_from_server', () => {
         ping_rtt = Date.now() - ping_start_time;
-        // console.log(`[NETWORK] Ping: ${ping_rtt}ms`);
     });
-    // --- END MODIFICATION ---
 
     socket.on('connect_error', (err) => {
         console.error('[NETWORK] Connection Error:', err);
@@ -114,7 +106,7 @@ function setupSocketListeners() {
 
     socket.on('join_success', (data) => {
         myServerData = data.myPlayerData;
-        allPlayersData = data.allPlayers;
+        allPlayersData = data.allPlayers; // Server now sends object keyed by userId
         serverPlanets = data.planets || [];
         serverConfig = data.serverConfig || {}; 
 
@@ -140,28 +132,45 @@ function setupSocketListeners() {
     socket.on('server_message', (message) => { addMessageToLog(`Server: ${message}`); });
 
     socket.on('player_joined', (newPlayerData) => {
-        if (myServerData && newPlayerData.socketId === myServerData.socketId) return;
-        allPlayersData[newPlayerData.socketId] = newPlayerData;
+        if (myServerData && newPlayerData.userId === myServerData.userId) return;
+        allPlayersData[newPlayerData.userId] = newPlayerData;
         addMessageToLog(`${newPlayerData.playerName} has joined.`);
     });
 
-    socket.on('player_left', (data) => {
-        if (allPlayersData[data.socketId]) {
-            const leftPlayerName = allPlayersData[data.socketId].playerName;
-            delete allPlayersData[data.socketId];
-            const clientState = getState();
-            if (clientState?.remotePlayers?.[data.socketId]) {
-                delete clientState.remotePlayers[data.socketId];
-            }
-            addMessageToLog(`${leftPlayerName} has disconnected.`);
+    // --- REVISED EVENT HANDLERS FOR NEW SERVER LOGIC ---
+
+    socket.on('player_disconnected', (data) => {
+        if (allPlayersData[data.userId]) {
+            allPlayersData[data.userId].isConnected = false;
+            addMessageToLog(`${data.playerName} has disconnected (derelict).`);
         }
     });
 
+    socket.on('player_reconnected', (reconnectedPlayerData) => {
+        allPlayersData[reconnectedPlayerData.userId] = reconnectedPlayerData;
+        addMessageToLog(`${reconnectedPlayerData.playerName} has reconnected.`);
+    });
+    
+    socket.on('player_removed', (data) => {
+        if (allPlayersData[data.userId]) {
+            const removedPlayerName = allPlayersData[data.userId].playerName;
+            delete allPlayersData[data.userId];
+            const clientState = getState();
+            if (clientState?.remotePlayers?.[data.userId]) {
+                delete clientState.remotePlayers[data.userId];
+            }
+            addMessageToLog(`${removedPlayerName}'s ship has been removed from the game.`);
+        }
+    });
+
+    // --- END REVISED EVENT HANDLERS ---
+
     socket.on('player_moved', (data) => {
-        if (allPlayersData[data.socketId] && myServerData && data.socketId !== myServerData.socketId) {
-            allPlayersData[data.socketId].x = data.x;
-            allPlayersData[data.socketId].y = data.y;
-            allPlayersData[data.socketId].angle = data.angle;
+        // Now using userId
+        if (allPlayersData[data.userId] && myServerData && data.userId !== myServerData.userId) {
+            allPlayersData[data.userId].x = data.x;
+            allPlayersData[data.userId].y = data.y;
+            allPlayersData[data.userId].angle = data.angle;
         }
     });
 
@@ -177,7 +186,8 @@ function setupSocketListeners() {
         if (!clientState) return;
 
         let projectileToUpdate = null;
-        if (projectileDataFromServer.ownerShipId === getMyPlayerId() && projectileDataFromServer.tempId) {
+        // Projectile ownership is now by userId
+        if (projectileDataFromServer.ownerUserId === getMyPlayerId() && projectileDataFromServer.tempId) {
             projectileToUpdate = clientState.projectiles.find(p => p.id === projectileDataFromServer.tempId);
         }
 
@@ -185,11 +195,11 @@ function setupSocketListeners() {
             projectileToUpdate.id = projectileDataFromServer.id;
             projectileToUpdate.isGhost = false;
             projectileToUpdate.applyServerUpdate(projectileDataFromServer);
-            console.log(`[NETWORK] Promoted ghost projectile ${projectileDataFromServer.tempId} to ${projectileDataFromServer.id}`);
+            // console.log(`[NETWORK] Promoted ghost projectile ${projectileDataFromServer.tempId} to ${projectileDataFromServer.id}`);
         } else {
             const newProj = new Projectile(
                 projectileDataFromServer.id,
-                projectileDataFromServer.ownerShipId,
+                projectileDataFromServer.ownerUserId, // Now ownerUserId
                 projectileDataFromServer.x,
                 projectileDataFromServer.y,
                 projectileDataFromServer.angle,
@@ -212,9 +222,10 @@ function setupSocketListeners() {
             }
         });
 
+        const activeServerIds = new Set(serverProjectilesData.map(p => p.id));
         clientState.projectiles = clientState.projectiles.filter(p => {
-            const serverVersion = serverProjectilesData.find(sp => sp.id === p.id);
-            return serverVersion ? serverVersion.isActive : (p.trailPersistsAfterImpact && p.trailLife > 0);
+             // Keep the projectile if the server says it's active OR if it's a non-ghost projectile that just hit something and needs to show its trail
+            return activeServerIds.has(p.id) || (p.isGhost === false && p.trailPersistsAfterImpact && p.trailLife > 0);
         });
     });
 
@@ -240,7 +251,6 @@ function setupSocketListeners() {
         }
     });
 
-    // --- BEGIN MODIFICATION: Listen for explicit projectile absorption event ---
     socket.on('projectile_absorbed_by_bh', (data) => {
         const clientState = getState();
         if (!clientState?.projectiles || !data.projectileId) return;
@@ -249,13 +259,15 @@ function setupSocketListeners() {
             projectile.isActive = false;
         }
     });
-    // --- END MODIFICATION ---
 
     socket.on('chunks_created', (newChunksData) => {
         const clientState = getState();
         if (!clientState?.settings) return;
         newChunksData.forEach(chunkData => {
-            clientState.chunks.push(new Chunk(chunkData, clientState.settings));
+            // Check if chunk already exists to prevent duplicates on reconnect/resync
+            if (!clientState.chunks.some(c => c.id === chunkData.id)) {
+                clientState.chunks.push(new Chunk(chunkData, clientState.settings));
+            }
         });
     });
 
@@ -269,11 +281,9 @@ function setupSocketListeners() {
                 clientChunk.applyServerUpdate(serverChunkData);
             }
         });
-
-        clientState.chunks = clientState.chunks.filter(c => {
-            const serverVersion = serverChunksData.find(sc => sc.id === c.id);
-            return serverVersion ? serverVersion.isActive : (c.isActive && c.life > 0);
-        });
+        
+        const activeServerChunkIds = new Set(serverChunksData.map(c => c.id));
+        clientState.chunks = clientState.chunks.filter(c => activeServerChunkIds.has(c.id));
     });
     
     socket.on('world_reset_data', (newWorldData) => {
@@ -290,9 +300,9 @@ function setupSocketListeners() {
     });
 
     socket.on('player_state_reset', (playerDataFromServer) => {
-        allPlayersData[playerDataFromServer.socketId] = playerDataFromServer;
+        allPlayersData[playerDataFromServer.userId] = playerDataFromServer;
         const clientState = getState();
-        if (myServerData && myServerData.socketId === playerDataFromServer.socketId) {
+        if (myServerData && myServerData.userId === playerDataFromServer.userId) {
             myServerData = playerDataFromServer;
             if (clientState?.ship) {
                 Object.assign(clientState.ship, playerDataFromServer);
@@ -318,7 +328,7 @@ function setupSocketListeners() {
         }
         
         let targetShipInstance;
-        if (myServerData?.socketId === hitData.hitPlayerId) {
+        if (myServerData?.userId === hitData.hitPlayerId) {
             targetShipInstance = clientState.ship;
             myServerData.health = hitData.newHealth;
         } else if (clientState.remotePlayers[hitData.hitPlayerId]) {
@@ -354,7 +364,7 @@ function setupSocketListeners() {
         }
 
         let targetShipInstance;
-        if (myServerData?.socketId === destructionData.destroyedShipId) {
+        if (myServerData?.userId === destructionData.destroyedShipId) {
             targetShipInstance = clientState.ship;
             if (myServerData) myServerData.isAlive = false;
         } else if (allPlayersData[destructionData.destroyedShipId]) {
@@ -406,22 +416,23 @@ function setupSocketListeners() {
 
     socket.on('player_respawned', (playerDataFromServer) => {
         addMessageToLog(`${playerDataFromServer.playerName} has respawned!`);
-        allPlayersData[playerDataFromServer.socketId] = playerDataFromServer;
+        allPlayersData[playerDataFromServer.userId] = playerDataFromServer;
         const clientState = getState();
         if (!clientState) return;
 
         let targetShip;
-        if (myServerData?.socketId === playerDataFromServer.socketId) {
+        if (myServerData?.userId === playerDataFromServer.userId) {
             myServerData = playerDataFromServer;
             targetShip = clientState.ship;
-        } else if (clientState.remotePlayers[playerDataFromServer.socketId]) {
-            targetShip = clientState.remotePlayers[playerDataFromServer.socketId];
+        } else if (clientState.remotePlayers[playerDataFromServer.userId]) {
+            targetShip = clientState.remotePlayers[playerDataFromServer.userId];
         }
         
         if (targetShip) {
             Object.assign(targetShip, playerDataFromServer);
             targetShip.color = targetShip.defaultColor;
             targetShip.hitFlashTimer = 0;
+            targetShip.isDerelict = false; // Ensure it's not derelict on respawn
         }
     });
 
@@ -443,21 +454,20 @@ function addMessageToLog(messageText) {
         const timestamp = new Date().toLocaleTimeString();
         li.textContent = `[${timestamp}] ${messageText}`;
         messageList.appendChild(li);
-        li.scrollIntoView({ behavior: 'auto', block: 'end' });
+        // Autoscroll to the bottom
+        messageList.parentElement.scrollTop = messageList.parentElement.scrollHeight;
     }
 }
 
-// --- BEGIN MODIFICATION: Send ping with ship updates ---
 export function sendShipUpdate(shipState) { 
     if (socket.connected && myServerData?.isAlive) {
-        shipState.ping = ping_rtt; // Attach the last calculated ping
+        shipState.ping = ping_rtt;
         socket.emit('ship_update', shipState);
     }
 }
-// --- END MODIFICATION ---
 
 export function sendProjectileFireRequest(projectileData) { if (socket.connected && myServerData?.isAlive) socket.emit('request_fire_projectile', projectileData); }
-export function getMyPlayerId() { return myServerData ? myServerData.socketId : null; }
+export function getMyPlayerId() { return myServerData ? myServerData.userId : null; } // CRITICAL CHANGE
 export function getClientSidePlayers() { return allPlayersData; }
 export function getMyNetworkData() { return myServerData; }
 

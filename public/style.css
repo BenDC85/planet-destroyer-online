@@ -1,11 +1,11 @@
 /* Reset and Base Styles */
 body {
     margin: 0;
-    overflow: hidden; /* This is duplicated from index.html's inline style, ensure it's what you want globally */
-    background-color: #333333; /* This is also in index.html, but good to have here for consistency */
+    overflow: hidden;
+    background-color: #000000;
     cursor: crosshair;
-    font-family: Arial, sans-serif; /* Added from index.html for global font */
-    color: #e0e0e0; /* Added from index.html for global text color */
+    font-family: Arial, sans-serif;
+    color: #e0e0e0;
 }
 canvas { display: block; }
 
@@ -78,7 +78,7 @@ canvas { display: block; }
     background-color: rgba(0, 0, 0, 0.75); color: white;
     padding: 5px 10px; border-radius: 4px;
     font-family: monospace; font-size: 11px;
-    /* z-index is set in index.html inline style to 100 */
+    z-index: 100;
     min-width: 230px; /* Adjust as needed */
     box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.6);
     max-height: calc(100vh - 20px); overflow-y: auto;
@@ -201,7 +201,6 @@ button.zoom-button:active { background-color: #555; }
     padding-top: 0; padding-bottom: 0;
     margin-top: 0; margin-bottom: 0;
     border-left-width: 0px; /* Hide border when collapsed */
-    /* overflow: hidden; already set */
 }
 /* ##AI_AUTOMATION::TARGET_ID_DEFINE_END=hudContainer## */
 
@@ -226,7 +225,7 @@ button.zoom-button:active { background-color: #555; }
     top: 0; right: 0;
     width: 15px;
     height: calc(100% - 20px); /* Account for horizontal scrollbar height */
-    writing-mode: vertical-lr; /* <<< ADDED THIS BACK */
+    writing-mode: vertical-lr;
 }
 
 /* Webkit (Chrome, Safari, Edge) */
@@ -239,36 +238,31 @@ button.zoom-button:active { background-color: #555; }
     cursor: grab;
 }
 .scroll-bar.horizontal::-webkit-slider-thumb {
-    height: 13px; /* Slightly smaller than track */
+    height: 13px;
     width: 30px;
 }
 .scroll-bar.vertical::-webkit-slider-thumb {
-    /* For vertical with writing-mode, width/height might be interpreted differently by browser */
-    /* Typically, you'd style its "height" as the sliding dimension and "width" as thickness */
-    height: 30px; /* This will be the length along the track */
-    width: 13px;  /* This will be the thickness */
+    height: 30px;
+    width: 13px;
 }
 .scroll-bar:active::-webkit-slider-thumb {
     background: rgba(255, 255, 255, 0.9);
 }
 
 /* Firefox */
-/* Firefox handles vertical range inputs differently and may not need writing-mode as much, */
-/* but it's good for consistency if Webkit needs it. */
 .scroll-bar::-moz-range-thumb {
     background: rgba(220, 220, 220, 0.7);
     border-radius: 3px;
     border: 1px solid rgba(50,50,50,0.5);
     cursor: grab;
-    height: 13px; /* Default for horizontal */
-    width: 30px;  /* Default for horizontal */
+    height: 13px;
+    width: 30px;
 }
 .scroll-bar.horizontal::-moz-range-thumb {
     height: 13px;
     width: 30px;
 }
 .scroll-bar.vertical::-moz-range-thumb {
-    /* For Firefox, when vertical, it often swaps width/height interpretation */
     width: 13px;
     height: 30px;
 }
@@ -277,22 +271,50 @@ button.zoom-button:active { background-color: #555; }
 }
 /* ##AI_AUTOMATION::TARGET_ID_DEFINE_END=scrollbarStyles## */
 
-/* Message Log Styles (from index.html for reference, if not set via inline style) */
-/*
-#messages {
-    position: absolute;
-    bottom: 20px;
-    left: 5px;
-    width: calc(100% - 310px);
-    max-height: 100px;
-    overflow-y: auto;
-    background-color: rgba(0,0,0,0.6);
-    padding: 5px;
-    border-radius: 3px;
-    font-size: 0.8em;
-    z-index: 90;
+/* --- New Game Layout Styles --- */
+#game-wrapper {
+    display: flex;
+    flex-direction: column; /* Stack canvas container and message log vertically */
+    height: 100vh;         /* Fill the full screen height */
+    width: 100vw;          /* Fill the full screen width */
+    background-color: #000;/* Black background for the whole game area */
 }
-#message-list { list-style-type: none; padding: 0; margin: 0; }
-#message-list li { padding: 2px 0; border-bottom: 1px solid #444; }
-#message-list li:last-child { border-bottom: none; }
-*/
+
+/* Container for the canvas and its absolutely positioned scrollbars */
+#canvas-container {
+    flex-grow: 1;      /* Allow the canvas area to grow and fill available space */
+    position: relative;  /* Needed for absolute positioning of scrollbars within it */
+    overflow: hidden;    /* Hide anything that might spill out */
+}
+
+#gameCanvas {
+    width: 100%;
+    height: 100%;
+}
+
+#message-container {
+    flex-shrink: 0; /* Prevent the log from shrinking */
+    height: 150px;  /* Fixed height for the message log */
+    background-color: #111;
+    border-top: 2px solid #333;
+    overflow-y: auto; /* Add a scrollbar if messages overflow */
+    padding: 8px;
+    box-sizing: border-box;
+    color: #ccc;
+    font-size: 0.9em;
+}
+
+#message-list {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+}
+
+#message-list li {
+    padding: 3px 0;
+    border-bottom: 1px solid #2a2a2a;
+}
+
+#message-list li:last-child {
+    border-bottom: none;
+}
