@@ -5,6 +5,7 @@ import * as inputHandler from './input/inputHandler.js';
 import * as physicsUpdater from './physics/physicsUpdater.js';
 import * as renderer from './rendering/renderer.js';
 import * as hudManager from './hud/hudManager.js';
+import { setCanvasDimensions } from './state/stateModifiers.js';
 
 // --- Global Scope Variables ---
 let canvas = null;
@@ -15,69 +16,93 @@ let animationFrameId = null;
 let resizeObserver = null;
 
 
+// --- Resizing Logic ---
+function updateCanvasSize() {
+    if (!canvas) return;
+
+    // Get the container for the canvas, which is managed by the flexbox layout
+    const canvasContainer = document.getElementById('canvas-container');
+    if (!canvasContainer) {
+        console.error("canvas-container not found for sizing!");
+        return;
+    }
+    const { width, height } = canvasContainer.getBoundingClientRect();
+
+    // Update the canvas resolution
+    canvas.width = width;
+    canvas.height = height;
+
+    // Update the dimensions in the game state so other modules can access them
+    setCanvasDimensions(width, height);
+}
+
+
 // --- Initialization Function (Called by network.js after successful join) ---
 export function initializeGame(initialWorldData = {}, authoritativeLocalPlayerData = null) {
 
     if (isGameLoopRunning) {
         console.warn("initializeGame called while game loop already running. Resetting...");
-        stopGameLoop(); // Use the cleanup function
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        isGameLoopRunning = false;
     }
     console.log("--- Main.js: Starting Game Initialization (called by network.js) ---");
 
 
     canvas = document.getElementById('gameCanvas');
     if (!canvas) { console.error("FATAL: Canvas element not found!"); return; }
-    
-    // --- BEGIN MODIFICATION: Canvas Sizing and Resize Handling ---
-    const canvasContainer = document.getElementById('canvas-container');
-    if (!canvasContainer) { console.error("FATAL: #canvas-container element not found!"); return; }
-
-    // Initial size setting
-    canvas.width = canvasContainer.clientWidth;
-    canvas.height = canvasContainer.clientHeight;
-    
-    // Create a ResizeObserver to handle canvas resizing dynamically
-    resizeObserver = new ResizeObserver(entries => {
-        // We are only observing one element, so we can access the first entry.
-        if (entries[0]) {
-            const { width, height } = entries[0].contentRect;
-            if (canvas.width !== width || canvas.height !== height) {
-                canvas.width = width;
-                canvas.height = height;
-                console.log(`Canvas resized to: ${width}x${height}`);
-            }
-        }
-    });
-    resizeObserver.observe(canvasContainer);
-    // --- END MODIFICATION ---
-
     ctx = canvas.getContext('2d');
     if (!ctx) { console.error("FATAL: Failed to get 2D context!"); return; }
 
-
     // --- Initialize Modules (Order Matters!) ---
-    initializeState(canvas.width, canvas.height, {}, initialWorldData, authoritativeLocalPlayerData);
+    // 1. Initialize State: Pass initial (temporary) canvas dimensions. The resize observer will correct it immediately.
+    initializeState(window.innerWidth, window.innerHeight, {}, initialWorldData, authoritativeLocalPlayerData);
     console.log("   Client Game State Initialized.");
 
+
+    // 2. Initialize Renderer
     if (!renderer.initializeRenderer(ctx)) {
         console.error("FATAL: Renderer initialization failed."); return;
     }
     console.log("   Renderer Initialized.");
 
+
+    // 3. Initialize HUD
     if (!hudManager.initializeHUD()) {
         console.warn("HUD Manager initialization failed.");
     } else {
         console.log("   HUD Initialized.");
     }
 
+
+    // 4. Initialize Input Handlers
     inputHandler.setupInputListeners(canvas);
     console.log("   Input Listeners Set Up.");
+
+    // 5. Setup Resize Observer
+    if (resizeObserver) resizeObserver.disconnect();
+    const gameContent = document.getElementById('game-content');
+    if(gameContent) {
+        resizeObserver = new ResizeObserver(entries => {
+            // We are observing the container, so we don't need to loop through entries
+            updateCanvasSize();
+        });
+        resizeObserver.observe(gameContent);
+        // Initial size update
+        updateCanvasSize();
+        console.log("   ResizeObserver Initialized.");
+    } else {
+        console.error("Could not find #game-content to setup ResizeObserver.");
+        // Fallback to old method if container not found
+        window.addEventListener('resize', updateCanvasSize);
+        updateCanvasSize();
+    }
 
 
     console.log("--- Main.js: Initialization Complete, Starting Game Loop ---");
     lastTimestamp = performance.now();
     isGameLoopRunning = true;
     
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
     animationFrameId = requestAnimationFrame(gameLoop);
 }
 
@@ -85,7 +110,8 @@ export function initializeGame(initialWorldData = {}, authoritativeLocalPlayerDa
 // --- Main Game Loop ---
 function gameLoop(timestamp) {
     if (!isGameLoopRunning || !ctx) {
-        stopGameLoop();
+        if (isGameLoopRunning && animationFrameId) cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
         return;
     }
 
@@ -98,7 +124,8 @@ function gameLoop(timestamp) {
     const state = getState();
     if (!state || !state.settings) {
         console.error("Game loop: State or settings unavailable.");
-        stopGameLoop();
+        isGameLoopRunning = false; 
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
         return;
     }
 
@@ -116,17 +143,16 @@ function gameLoop(timestamp) {
 // --- Stop Game Function ---
 export function stopGameLoop() {
     if (isGameLoopRunning) {
-        console.log("--- Main.js: Stopping Game Loop and Cleaning Up ---");
-    }
-    isGameLoopRunning = false;
-    if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
-    }
-    // Disconnect the resize observer to prevent memory leaks
-    if (resizeObserver) {
-        resizeObserver.disconnect();
-        resizeObserver = null;
+        console.log("--- Main.js: Stopping Game Loop ---");
+        isGameLoopRunning = false;
+        if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+        }
+        if (resizeObserver) {
+            resizeObserver.disconnect();
+            resizeObserver = null;
+        }
     }
 }
 
