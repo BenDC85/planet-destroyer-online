@@ -25,6 +25,12 @@ let allPlayersData = {};
 let serverPlanets = [];
 let serverConfig = {}; 
 
+// --- BEGIN MODIFICATION: Ping calculation variables ---
+let ping_rtt = 0;
+let ping_start_time;
+const PING_INTERVAL_MS = 2500; // Ping every 2.5 seconds
+// --- END MODIFICATION ---
+
 function initNetwork() {
     console.log("Network.js: Initializing...");
     const savedUserId = localStorage.getItem('planetDestroyerUserId');
@@ -84,7 +90,20 @@ function setupSocketListeners() {
         if (joinGameButton && joinGameButton.disabled) {
              sendJoinRequest();
         }
+        // --- BEGIN MODIFICATION: Start pinging the server ---
+        setInterval(() => {
+            ping_start_time = Date.now();
+            socket.emit('ping_from_client');
+        }, PING_INTERVAL_MS);
+        // --- END MODIFICATION ---
     });
+    
+    // --- BEGIN MODIFICATION: Add pong listener ---
+    socket.on('pong_from_server', () => {
+        ping_rtt = Date.now() - ping_start_time;
+        // console.log(`[NETWORK] Ping: ${ping_rtt}ms`);
+    });
+    // --- END MODIFICATION ---
 
     socket.on('connect_error', (err) => {
         console.error('[NETWORK] Connection Error:', err);
@@ -157,22 +176,17 @@ function setupSocketListeners() {
         const clientState = getState();
         if (!clientState) return;
 
-        // --- BEGIN MODIFICATION: Handle ghost projectile promotion ---
         let projectileToUpdate = null;
-        // Check if this creation message is for a projectile we already predicted
         if (projectileDataFromServer.ownerShipId === getMyPlayerId() && projectileDataFromServer.tempId) {
             projectileToUpdate = clientState.projectiles.find(p => p.id === projectileDataFromServer.tempId);
         }
 
         if (projectileToUpdate) {
-            // "Promote" the ghost projectile to a real, server-confirmed one
-            projectileToUpdate.id = projectileDataFromServer.id; // Update to the permanent server ID
+            projectileToUpdate.id = projectileDataFromServer.id;
             projectileToUpdate.isGhost = false;
-            // The server's initial position/velocity is the most accurate, so we apply it
             projectileToUpdate.applyServerUpdate(projectileDataFromServer);
             console.log(`[NETWORK] Promoted ghost projectile ${projectileDataFromServer.tempId} to ${projectileDataFromServer.id}`);
         } else {
-            // This is a projectile from another player, create it fresh
             const newProj = new Projectile(
                 projectileDataFromServer.id,
                 projectileDataFromServer.ownerShipId,
@@ -185,7 +199,6 @@ function setupSocketListeners() {
             );
             addProjectile(newProj);
         }
-        // --- END MODIFICATION ---
     });
 
     socket.on('projectiles_update', (serverProjectilesData) => {
@@ -226,6 +239,17 @@ function setupSocketListeners() {
             }
         }
     });
+
+    // --- BEGIN MODIFICATION: Listen for explicit projectile absorption event ---
+    socket.on('projectile_absorbed_by_bh', (data) => {
+        const clientState = getState();
+        if (!clientState?.projectiles || !data.projectileId) return;
+        const projectile = clientState.projectiles.find(p => p.id === data.projectileId);
+        if (projectile) {
+            projectile.isActive = false;
+        }
+    });
+    // --- END MODIFICATION ---
 
     socket.on('chunks_created', (newChunksData) => {
         const clientState = getState();
@@ -423,7 +447,15 @@ function addMessageToLog(messageText) {
     }
 }
 
-export function sendShipUpdate(shipState) { if (socket.connected && myServerData?.isAlive) socket.emit('ship_update', shipState); }
+// --- BEGIN MODIFICATION: Send ping with ship updates ---
+export function sendShipUpdate(shipState) { 
+    if (socket.connected && myServerData?.isAlive) {
+        shipState.ping = ping_rtt; // Attach the last calculated ping
+        socket.emit('ship_update', shipState);
+    }
+}
+// --- END MODIFICATION ---
+
 export function sendProjectileFireRequest(projectileData) { if (socket.connected && myServerData?.isAlive) socket.emit('request_fire_projectile', projectileData); }
 export function getMyPlayerId() { return myServerData ? myServerData.socketId : null; }
 export function getClientSidePlayers() { return allPlayersData; }

@@ -382,7 +382,8 @@ io.on('connection', (socket) => {
             angle: initialAngle,
             health: SV_SHIP_DEFAULT_HEALTH,
             isAlive: true,
-            lastFireTime: 0
+            lastFireTime: 0,
+            ping: 0 // Initialize ping
         };
 
         console.log(`Socket ${socket.id} joined as Player ${players[socket.id].playerNumber} (Name: \"${trimmedPlayerName}\", HP: ${players[socket.id].health}) at (${spawnPoint.x.toFixed(0)}, ${spawnPoint.y.toFixed(0)})`);
@@ -412,6 +413,9 @@ io.on('connection', (socket) => {
             player.x = shipData.x;
             player.y = shipData.y;
             player.angle = shipData.angle;
+            // --- BEGIN MODIFICATION: Store the player's reported ping ---
+            player.ping = shipData.ping || 0;
+            // --- END MODIFICATION ---
             socket.broadcast.emit('player_moved', { socketId: socket.id, x: shipData.x, y: shipData.y, angle: shipData.angle });
         }
     });
@@ -421,12 +425,10 @@ io.on('connection', (socket) => {
         if (!player || !player.isAlive) {
             return;
         }
-        // --- BEGIN MODIFICATION: Added validation for tempId ---
         if (!projectileData || typeof projectileData.startX !== 'number' || typeof projectileData.massKg !== 'number' || !projectileData.tempId) {
             console.warn(`[SERVER] Invalid projectile data from ${player.playerName} (${socket.id})`);
             return;
         }
-        // --- END MODIFICATION ---
 
         const FIRE_RATE_MS = 160;
         const now = Date.now();
@@ -454,14 +456,18 @@ io.on('connection', (socket) => {
             massKg: validatedMass,
             isActive: true,
             framesAlive: 0,
-            // --- BEGIN MODIFICATION: Include tempId in the creation broadcast ---
             tempId: projectileData.tempId 
-            // --- END MODIFICATION ---
         };
 
         serverProjectiles.push(newServerProjectile);
         io.emit('new_projectile_created', newServerProjectile);
     });
+
+    // --- BEGIN MODIFICATION: Add a listener for ping requests ---
+    socket.on('ping_from_client', () => {
+        socket.emit('pong_from_server');
+    });
+    // --- END MODIFICATION ---
 
     socket.on('request_world_reset', (clientSuggestedSettings) => {
         console.log(`[SERVER] Received 'request_world_reset' from ${players[socket.id]?.playerName || socket.id}.`);
@@ -620,6 +626,9 @@ function updateServerProjectiles() {
                 if (distSq_pixels <= ehRadius * ehRadius) {
                     proj.isActive = false;
                     wasAbsorbedThisFrame = true;
+                    // --- BEGIN MODIFICATION: Explicitly notify clients of absorption ---
+                    io.emit('projectile_absorbed_by_bh', { projectileId: proj.id, blackHoleId: planet.id });
+                    // --- END MODIFICATION ---
                     console.log(`[SERVER] Projectile ${proj.id} absorbed by Black Hole ${planet.id}`);
                     return;
                 }
@@ -702,7 +711,27 @@ function updateServerProjectiles() {
                     maxY: planet.y + planet.originalRadius,
                 };
                 if (!(projMaxX < planetBounds.minX || projMinX > planetBounds.maxX || projMaxY < planetBounds.minY || projMinY > planetBounds.maxY)) {
-                    const impact = serverFindAccurateImpactPoint({ x: proj.prevX, y: proj.prevY }, { x: proj.x, y: proj.y }, planet);
+                    
+                    // --- BEGIN MODIFICATION: Server-Side Rewind for Lag Compensation ---
+                    let checkSegmentStart = { x: proj.prevX, y: proj.prevY };
+                    let checkSegmentEnd = { x: proj.x, y: proj.y };
+                    const owner = players[proj.ownerShipId];
+
+                    if (owner && owner.ping > 0) {
+                        const latencySeconds = (owner.ping / 2) / 1000.0; // One-way latency
+                        const framesToRewind = Math.round(latencySeconds / SV_PROJECTILE_SECONDS_PER_FRAME);
+                        
+                        if (framesToRewind > 0) {
+                            checkSegmentEnd.x -= proj.vx * framesToRewind;
+                            checkSegmentEnd.y -= proj.vy * framesToRewind;
+                            // Also rewind the start of the segment for a more accurate vector check
+                            checkSegmentStart.x -= proj.vx * framesToRewind;
+                            checkSegmentStart.y -= proj.vy * framesToRewind;
+                        }
+                    }
+                    const impact = serverFindAccurateImpactPoint(checkSegmentStart, checkSegmentEnd, planet);
+                    // --- END MODIFICATION ---
+
                     if (impact) {
                         proj.isActive = false;
                         const impactSpeed_pixels_frame = Math.sqrt(proj.vx ** 2 + proj.vy ** 2);
