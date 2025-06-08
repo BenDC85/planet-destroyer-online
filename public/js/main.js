@@ -1,4 +1,3 @@
-/* File: public/js/main.js */
 // js/main.js - Adapted for multiplayer
 
 import { getState, initializeState, updateRemotePlayerShips } from './state/gameState.js';
@@ -7,64 +6,70 @@ import * as physicsUpdater from './physics/physicsUpdater.js';
 import * as renderer from './rendering/renderer.js';
 import * as hudManager from './hud/hudManager.js';
 
-// getMyPlayerId, getClientSidePlayers, getMyPlayerData, sendShipUpdate are used by other modules, not directly here usually.
-
-
 // --- Global Scope Variables ---
 let canvas = null;
 let ctx = null;
 let lastTimestamp = 0;
 let isGameLoopRunning = false;
 let animationFrameId = null;
+let resizeObserver = null;
 
 
 // --- Initialization Function (Called by network.js after successful join) ---
-// Now accepts initialWorldData and authoritative localPlayerData from network.js
-export function initializeGame(initialWorldData = {}, authoritativeLocalPlayerData = null) { // **** MODIFIED ****
+export function initializeGame(initialWorldData = {}, authoritativeLocalPlayerData = null) {
 
     if (isGameLoopRunning) {
         console.warn("initializeGame called while game loop already running. Resetting...");
-        if (animationFrameId) cancelAnimationFrame(animationFrameId);
-        isGameLoopRunning = false;
+        stopGameLoop(); // Use the cleanup function
     }
     console.log("--- Main.js: Starting Game Initialization (called by network.js) ---");
 
 
     canvas = document.getElementById('gameCanvas');
     if (!canvas) { console.error("FATAL: Canvas element not found!"); return; }
+    
+    // --- BEGIN MODIFICATION: Canvas Sizing and Resize Handling ---
+    const canvasContainer = document.getElementById('canvas-container');
+    if (!canvasContainer) { console.error("FATAL: #canvas-container element not found!"); return; }
+
+    // Initial size setting
+    canvas.width = canvasContainer.clientWidth;
+    canvas.height = canvasContainer.clientHeight;
+    
+    // Create a ResizeObserver to handle canvas resizing dynamically
+    resizeObserver = new ResizeObserver(entries => {
+        // We are only observing one element, so we can access the first entry.
+        if (entries[0]) {
+            const { width, height } = entries[0].contentRect;
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+                console.log(`Canvas resized to: ${width}x${height}`);
+            }
+        }
+    });
+    resizeObserver.observe(canvasContainer);
+    // --- END MODIFICATION ---
+
     ctx = canvas.getContext('2d');
     if (!ctx) { console.error("FATAL: Failed to get 2D context!"); return; }
 
 
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-
-
     // --- Initialize Modules (Order Matters!) ---
-    // 1. Initialize State: Pass canvas dimensions, initialWorldData (planets and config), and authoritativeLocalPlayerData
-    // initialSettings from HUD/defaults will be handled within initializeState itself.
-    // **** MODIFIED: Pass the entire initialWorldData object which now contains the server config ****
     initializeState(canvas.width, canvas.height, {}, initialWorldData, authoritativeLocalPlayerData);
-
     console.log("   Client Game State Initialized.");
 
-
-    // 2. Initialize Renderer
     if (!renderer.initializeRenderer(ctx)) {
         console.error("FATAL: Renderer initialization failed."); return;
     }
     console.log("   Renderer Initialized.");
 
-
-    // 3. Initialize HUD
     if (!hudManager.initializeHUD()) {
         console.warn("HUD Manager initialization failed.");
     } else {
         console.log("   HUD Initialized.");
     }
 
-
-    // 4. Initialize Input Handlers
     inputHandler.setupInputListeners(canvas);
     console.log("   Input Listeners Set Up.");
 
@@ -73,7 +78,6 @@ export function initializeGame(initialWorldData = {}, authoritativeLocalPlayerDa
     lastTimestamp = performance.now();
     isGameLoopRunning = true;
     
-    if (animationFrameId) cancelAnimationFrame(animationFrameId);
     animationFrameId = requestAnimationFrame(gameLoop);
 }
 
@@ -81,8 +85,7 @@ export function initializeGame(initialWorldData = {}, authoritativeLocalPlayerDa
 // --- Main Game Loop ---
 function gameLoop(timestamp) {
     if (!isGameLoopRunning || !ctx) {
-        if (isGameLoopRunning && animationFrameId) cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
+        stopGameLoop();
         return;
     }
 
@@ -95,8 +98,7 @@ function gameLoop(timestamp) {
     const state = getState();
     if (!state || !state.settings) {
         console.error("Game loop: State or settings unavailable.");
-        isGameLoopRunning = false; 
-        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        stopGameLoop();
         return;
     }
 
@@ -114,12 +116,17 @@ function gameLoop(timestamp) {
 // --- Stop Game Function ---
 export function stopGameLoop() {
     if (isGameLoopRunning) {
-        console.log("--- Main.js: Stopping Game Loop ---");
-        isGameLoopRunning = false;
-        if (animationFrameId) {
-            cancelAnimationFrame(animationFrameId);
-            animationFrameId = null;
-        }
+        console.log("--- Main.js: Stopping Game Loop and Cleaning Up ---");
+    }
+    isGameLoopRunning = false;
+    if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+    }
+    // Disconnect the resize observer to prevent memory leaks
+    if (resizeObserver) {
+        resizeObserver.disconnect();
+        resizeObserver = null;
     }
 }
 

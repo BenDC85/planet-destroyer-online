@@ -10,10 +10,12 @@ const { createClient } = require('@supabase/supabase-js');
 
 
 // --- Server-Side Config ---
-const SV_WORLD_MIN_X = -2900; const SV_WORLD_MIN_Y = -2250;
-const SV_WORLD_MAX_X = 4800; const SV_WORLD_MAX_Y = 2250;
+// --- BEGIN MODIFICATION: Adjust world dimensions ---
+const SV_WORLD_MIN_X = -2900; const SV_WORLD_MAX_X = 4800; // Total width: 7700
+const SV_WORLD_MIN_Y = -1915; const SV_WORLD_MAX_Y = 2115; // Centered height of 4030
 const SV_WORLD_WIDTH = SV_WORLD_MAX_X - SV_WORLD_MIN_X;
-const SV_WORLD_HEIGHT = SV_WORLD_MAX_Y - SV_WORLD_MIN_Y;
+const SV_WORLD_HEIGHT = SV_WORLD_MAX_Y - SV_WORLD_MIN_Y; // Now 4030
+// --- END MODIFICATION ---
 const SV_PIXELS_PER_METER = 0.5;
 const SV_DEFAULT_PLANET_COUNT = 6;
 const SV_MIN_PLANET_RADIUS_RANGE_PX = 20;
