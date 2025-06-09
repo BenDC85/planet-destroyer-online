@@ -32,7 +32,7 @@ function handleResize() {
     // Update the game state with the new dimensions
     setCanvasDimensions(newWidth, newHeight);
 
-    console.log(`[Main] Canvas resized to: ${newWidth}x${newHeight}`);
+    // console.log(`[Main] Canvas resized to: ${newWidth}x${newHeight}`);
 }
 
 
