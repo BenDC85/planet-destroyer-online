@@ -2,8 +2,8 @@
 
 
 import * as config from '../config.js';
-import { getState, initializeState } from './gameState.js';
-import * as stateModifiers from './state/stateModifiers.js';
+import { getState, initializeState } from '../state/gameState.js';
+import * as stateModifiers from '../state/stateModifiers.js';
 import * as interaction from './interaction.js';
 import * as utils from '../utils.js';
 import * as stateUtils from '../state/stateUtils.js'; 
@@ -75,7 +75,7 @@ let keyState = {
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=moduleStateVariables##
 
 
-// --- Initialization ---
+// --- Initialization --
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=setupInputListenersFunction##
 export function setupInputListeners(canvasElement) {
     if (!canvasElement) {
@@ -213,7 +213,7 @@ export function setupInputListeners(canvasElement) {
     setupInput(coreExplosionInput, coreExplosionValue, initialSettings.coreExplosionDuration, stateModifiers.setCoreExplosionDuration, 0);
     setupInput(coreImplosionInput, coreImplosionValue, initialSettings.coreImplosionDuration, stateModifiers.setCoreImplosionDuration, 0);
     setupInput(craterScaleInput, craterScaleValue, initialSettings.craterScalingC, stateModifiers.setCraterScalingC, 1, false, 1, false); 
-    setupInput(keToEjectInput, keToEjectValue, initialSettings.keToEjectEta, stateModifiers.setKeToMassEjectEta, 1, false, 1, false); 
+    setupInput(keToEjectInput, keToEjectValue, initialSettings.keToMassEjectEta, stateModifiers.setKeToMassEjectEta, 1, false, 1, false); 
     setupInput(bhEnergyMultInput, bhEnergyMultValue, initialSettings.bhEnergyMultiplier, stateModifiers.setBHEnergyMultiplier, 1);
 
 
@@ -239,11 +239,11 @@ export function setupInputListeners(canvasElement) {
         const shouldBeOpen = index === 0; 
         title.addEventListener('click', handleCollapseToggle);
         if (shouldBeOpen) {
-            title.textContent = title.textContent.replace(/\[[+-]\]/g, '[-]');
+            title.textContent = title.textContent.replace(/\\[[+-]\\]/g, '[-]');
             contentDiv.style.maxHeight = contentDiv.scrollHeight + "px";
             contentDiv.classList.remove('collapsed');
         } else {
-            title.textContent = title.textContent.replace(/\[[+-]\]/g, '[+]');
+            title.textContent = title.textContent.replace(/\\[[+-]\\]/g, '[+]');
             contentDiv.style.maxHeight = '0px';
             contentDiv.classList.add('collapsed');
         }
@@ -494,11 +494,11 @@ function handleCollapseToggle(event) {
     const isCollapsed = contentDiv.classList.contains('collapsed');
     if (isCollapsed) {
         contentDiv.classList.remove('collapsed');
-        title.textContent = title.textContent.replace(/\[[+-]\]/g, '[-]');
+        title.textContent = title.textContent.replace(/\\[[+-]\\]/g, '[-]');
         contentDiv.style.maxHeight = contentDiv.scrollHeight + "px"; 
     } else {
         contentDiv.classList.add('collapsed');
-        title.textContent = title.textContent.replace(/\[[+-]\]/g, '[+]');
+        title.textContent = title.textContent.replace(/\\[[+-]\\]/g, '[+]');
         contentDiv.style.maxHeight = '0px'; 
     }
 }
