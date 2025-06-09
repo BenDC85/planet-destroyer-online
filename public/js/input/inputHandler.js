@@ -1,10 +1,9 @@
-/* File: public/js/input/inputHandler.js */
 // js/input/inputHandler.js
 
 
 import * as config from '../config.js';
-import { getState, initializeState } from '../state/gameState.js';
-import * as stateModifiers from '../state/stateModifiers.js';
+import { getState, initializeState } from './gameState.js';
+import * as stateModifiers from './state/stateModifiers.js';
 import * as interaction from './interaction.js';
 import * as utils from '../utils.js';
 import * as stateUtils from '../state/stateUtils.js'; 
@@ -134,7 +133,8 @@ export function setupInputListeners(canvasElement) {
 
     canvas.addEventListener('click', handleCanvasClick);
     canvas.addEventListener('mousemove', handleCanvasMouseMove);
-    window.addEventListener('resize', handleResize);
+    // Note: The resize handler is now managed in main.js
+    // window.addEventListener('resize', handleResize); 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
@@ -167,7 +167,8 @@ export function setupInputListeners(canvasElement) {
             if (typeof displayValue === 'number' && isFinite(displayValue)) {
                 inputEl.value = displayValue.toFixed(hudPrecision);
             } else {
-                inputEl.value = String(displayValue); 
+                // Set to empty or a default if the initial value is bad
+                inputEl.value = ""; 
             }
 
 
@@ -212,13 +213,17 @@ export function setupInputListeners(canvasElement) {
     setupInput(coreExplosionInput, coreExplosionValue, initialSettings.coreExplosionDuration, stateModifiers.setCoreExplosionDuration, 0);
     setupInput(coreImplosionInput, coreImplosionValue, initialSettings.coreImplosionDuration, stateModifiers.setCoreImplosionDuration, 0);
     setupInput(craterScaleInput, craterScaleValue, initialSettings.craterScalingC, stateModifiers.setCraterScalingC, 1, false, 1, false); 
-    setupInput(keToEjectInput, keToEjectValue, initialSettings.keToMassEjectEta, stateModifiers.setKeToMassEjectEta, 1, false, 1, false); 
+    setupInput(keToEjectInput, keToEjectValue, initialSettings.keToEjectEta, stateModifiers.setKeToMassEjectEta, 1, false, 1, false); 
     setupInput(bhEnergyMultInput, bhEnergyMultValue, initialSettings.bhEnergyMultiplier, stateModifiers.setBHEnergyMultiplier, 1);
 
 
     setupInput(planetCountInput, planetCountValue, initialSettings.planetCount, stateModifiers.setSetupPlanetCount, 0);
     setupInput(bhGravityFactorInput, bhGravityFactorValue, initialSettings.bhGravityFactor, stateModifiers.setBHGravityFactor, 1);
-    setupInput(bhEventHorizonInput, bhEventHorizonValue, initialSettings.blackHoleEventHorizonRadius, stateModifiers.setBlackHoleEventHorizonRadius, 0);
+    
+    // ** THE FIX IS HERE **
+    // The property name from the settings object was incorrect.
+    // Changed `initialSettings.blackHoleEventHorizonRadius` to `initialSettings.bhEventHorizonRadiusPx`
+    setupInput(bhEventHorizonInput, bhEventHorizonValue, initialSettings.bhEventHorizonRadiusPx, stateModifiers.setBlackHoleEventHorizonRadius, 0);
 
 
     if (persistentDriftCheckbox) {
@@ -273,18 +278,8 @@ function handleCanvasMouseMove(event) {
     const screenCoords = { x: event.clientX - rect.left, y: event.clientY - rect.top };
     stateModifiers.setCurrentMousePos(screenCoords);
 }
-function handleResize() {
-    if (!canvas) return;
-    const newWidth = window.innerWidth;
-    const newHeight = window.innerHeight;
-    canvas.width = newWidth;
-    canvas.height = newHeight;
-    const state = getState();
-    if (!state) { console.error("handleResize: Cannot get current state!"); return; }
-    state.canvasWidth = newWidth;
-    state.canvasHeight = newHeight;
-    updateScrollbars();
-}
+// This is now handled in main.js
+// function handleResize() { ... }
 function handleKeyDown(event) {
     if (event.target.tagName === 'INPUT' && event.target.type !== 'checkbox') return; 
     
@@ -297,10 +292,8 @@ function handleKeyDown(event) {
             if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') {
                 updateShipStateFromKeys();
             } else if (event.code === 'Space') {
-                // --- BEGIN MODIFICATION: Client-Side Prediction for Firing ---
                 const ghostProjectileData = stateModifiers.fireShipProjectile(); 
                 if (ghostProjectileData) {
-                    // Instantly create the "ghost" projectile on the client
                     const ghost = new Projectile(
                         ghostProjectileData.id,
                         ghostProjectileData.ownerShipId,
@@ -313,7 +306,6 @@ function handleKeyDown(event) {
                     );
                     stateModifiers.addProjectile(ghost);
                 }
-                // --- END MODIFICATION ---
             }
         }
     }
@@ -354,6 +346,7 @@ function updateZoom(newZoomRaw) {
     const newZoom = Math.max(config.minZoom, Math.min(config.maxZoom, isNaN(newZoomRaw) ? config.defaultCameraZoom : newZoomRaw));
     const state = getState();
     if (!state || !state.settings) return;
+    // The logic to recalculate camera offset is now removed from here and centralized in the renderer.
     stateModifiers.setCameraZoom(newZoom, state.canvasWidth / 2, state.canvasHeight / 2); 
     if (cameraZoomInput) cameraZoomInput.value = newZoom.toFixed(1);
     if (cameraZoomValue) cameraZoomValue.textContent = newZoom.toFixed(1);
@@ -416,7 +409,7 @@ function handleGenericNumberInput(modifierFunction, valueElement, hudPrecision, 
         else if (id.includes('coreImplosion')) actualInternalValue = currentState?.settings?.coreImplosionDuration;
         else if (id.includes('planetCount')) actualInternalValue = currentState?.settings?.planetCount;
         else if (id.includes('bhGravityConst')) actualInternalValue = currentState?.settings?.bhGravityFactor;
-        else if (id.includes('bhEventHorizon')) actualInternalValue = currentState?.settings?.blackHoleEventHorizonRadius;
+        else if (id.includes('bhEventHorizon')) actualInternalValue = currentState?.settings?.bhEventHorizonRadiusPx; // Corrected property
         else if (id.includes('craterScale')) actualInternalValue = currentState?.settings?.craterScalingC;
         else if (id.includes('keToEject')) actualInternalValue = currentState?.settings?.keToMassEjectEta;
         else if (id.includes('bhEnergyMult')) actualInternalValue = currentState?.settings?.bhEnergyMultiplier;
@@ -441,8 +434,6 @@ function handleGenericNumberInput(modifierFunction, valueElement, hudPrecision, 
         }
         if (event.target && typeof displayValueForHud === 'number' && isFinite(displayValueForHud)) {
             const formattedNewVal = displayValueForHud.toFixed(hudPrecision);
-            // if (document.activeElement !== event.target || event.target.value !== formattedNewVal) {
-            // } // Removed to prevent cursor jump
         }
         if (updateCallback) updateCallback();
     }
@@ -480,7 +471,7 @@ function handleLogSettings() {
         console.log(`  Destruction: CraterScale(c)=${settings.craterScalingC.toExponential(2)}, KE-to-Eject(eta)=${settings.keToMassEjectEta.toExponential(2)}, BH Energy Mult=${settings.bhEnergyMultiplier.toFixed(2)}`);
         console.log(`  Chunks: Lifespan=${settings.chunkLifespanFrames}f, MaxSpeed=${settings.chunkMaxSpeedThreshold}px/f`);
         console.log(`  Effects Timing: CoreExplode=${settings.coreExplosionDuration}f, CoreImplode=${settings.coreImplosionDuration}f`);
-        console.log(`  BH Core: GravityFactor=${settings.bhGravityFactor.toFixed(1)}x (GM=${settings.blackHoleGravitationalConstant.toExponential(3)}), EventHorizon=${settings.blackHoleEventHorizonRadius}px`);
+        console.log(`  BH Core: GravityFactor=${settings.bhGravityFactor.toFixed(1)}x (GM=${settings.blackHoleGravitationalConstant.toExponential(3)}), EventHorizon=${settings.bhEventHorizonRadiusPx}px`);
         console.log(`  BH Drag: ZoneMultiplier=${settings.bhDragZoneMultiplier.toFixed(2)}, MaxDragCoeff=${settings.bhDragCoefficientMax.toFixed(3)}`);
         console.log(`  BH Particles: LifeFactor=${settings.bhParticleLifeFactor.toFixed(1)}, SpeedFactor=${settings.bhParticleSpeedFactor.toFixed(1)}, SpawnRate=${settings.bhParticleSpawnRate}/f, MaxTotal=${settings.bhMaxParticles}`);
         console.log(`  BH Particle Spawn: MinRadiusFactor=${settings.bhSpawnRadiusMinFactor.toFixed(2)}, MaxRadiusFactor=${settings.bhSpawnRadiusMaxFactor.toFixed(2)}, MinSize=${settings.bhParticleMinSize.toFixed(1)}px, MaxSize=${settings.bhParticleMaxSize.toFixed(1)}px`);

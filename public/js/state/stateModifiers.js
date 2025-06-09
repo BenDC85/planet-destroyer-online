@@ -70,16 +70,13 @@ export function fireShipProjectile() {
 
     const projectileDataForServer = state.ship.fire(); 
     if (projectileDataForServer) {
-        // --- BEGIN MODIFICATION: Generate a temporary ID for the ghost projectile ---
         const tempId = `temp_proj_${Date.now()}_${Math.random()}`;
         projectileDataForServer.tempId = tempId;
-        // --- END MODIFICATION ---
 
         sendProjectileFireRequest(projectileDataForServer);
 
-        // --- BEGIN MODIFICATION: Return the full data for immediate client-side creation ---
         return {
-            id: tempId, // Use the temporary ID
+            id: tempId,
             ownerShipId: state.ship.id,
             x: projectileDataForServer.startX,
             y: projectileDataForServer.startY,
@@ -87,9 +84,8 @@ export function fireShipProjectile() {
             initialSpeedInternalPxFrame: projectileDataForServer.initialSpeedInternalPxFrame,
             color: config.PROJECTILE_COLOR,
             massKg: projectileDataForServer.massKg,
-            isGhost: true // A flag to identify this as a client-predicted projectile
+            isGhost: true
         };
-        // --- END MODIFICATION ---
     }
     return null;
 }
@@ -100,7 +96,6 @@ export function addProjectile(projectileInstance) {
     if (state && projectileInstance) state.projectiles.push(projectileInstance);
 }
 
-// **** NEW: Export function to add a single particle to the state ****
 export function addParticleToState(particleInstance) {
     const state = getState();
     if (state && particleInstance) {
@@ -119,54 +114,17 @@ export function setDamageRadius(radius) {
 }
 
 
-export function setCameraZoom(newZoomRaw, screenFocusX, screenFocusY) {
+// ** THE FIX IS HERE **
+// This function is now greatly simplified. It only updates the zoom value.
+// The renderer is now solely responsible for calculating the resulting view.
+export function setCameraZoom(newZoomRaw) {
     const state = getState();
-    if (!state || !state.settings || !state.ship || !state.canvasWidth) return;
+    if (!state || !state.settings) return;
 
-
-    const settings = state.settings;
-    const oldZoom = settings.cameraZoom;
     const newZoom = Math.max(config.minZoom, Math.min(config.maxZoom, isNaN(newZoomRaw) ? config.defaultCameraZoom : newZoomRaw));
-
-
-    if (Math.abs(newZoom - oldZoom) < 1e-6) return; 
-
-
-    const worldPointBeforeZoom = screenToWorld({ x: screenFocusX, y: screenFocusY }, state);
-    const zoomRatio = newZoom / oldZoom;
-    let planetAttractTargetX = null; let planetAttractTargetY = null;
-
-
-    if (settings.planetZoomAttractFactor > 0 && state.planets.length > 0 && zoomRatio < 1) {
-        const interactivePlanets = state.planets
-            .filter(p => !p.isBreakingUp && !p.isDestroying && !p.isBlackHole && !p.isDestroyed && (p.massKg ?? 0) > 0)
-            .map(p => ({ planet: p, distSq: utils.distanceSq(worldPointBeforeZoom, p) }))
-            .sort((a, b) => a.distSq - b.distSq);
-        if (interactivePlanets.length === 1) {
-            planetAttractTargetX = interactivePlanets[0].planet.x; planetAttractTargetY = interactivePlanets[0].planet.y;
-        } else if (interactivePlanets.length >= 2) {
-            planetAttractTargetX = (interactivePlanets[0].planet.x + interactivePlanets[1].planet.x) / 2;
-            planetAttractTargetY = (interactivePlanets[0].planet.y + interactivePlanets[1].planet.y) / 2;
-        }
-    }
-
-
-    let finalTargetX = worldPointBeforeZoom.x; let finalTargetY = worldPointBeforeZoom.y;
-    if (zoomRatio > 1 && state.ship) { 
-        const shipFactor = settings.shipZoomAttractFactor;
-        finalTargetX = worldPointBeforeZoom.x * (1 - shipFactor) + state.ship.x * shipFactor;
-        finalTargetY = worldPointBeforeZoom.y * (1 - shipFactor) + state.ship.y * shipFactor;
-    } else if (zoomRatio < 1 && planetAttractTargetX !== null) { 
-        const planetFactor = settings.planetZoomAttractFactor;
-        finalTargetX = worldPointBeforeZoom.x * (1 - planetFactor) + planetAttractTargetX * planetFactor;
-        finalTargetY = worldPointBeforeZoom.y * (1 - planetFactor) + planetAttractTargetY * planetFactor;
-    }
-
-
-    settings.cameraZoom = newZoom;
-    const newOffsetX = finalTargetX - (screenFocusX - state.canvasWidth / 2) / newZoom;
-    const newOffsetY = finalTargetY - (screenFocusY - state.canvasHeight / 2) / newZoom;
-    setCameraOffset(newOffsetX, newOffsetY); 
+    
+    // Only update the zoom level. Do NOT modify camera offset here.
+    state.settings.cameraZoom = newZoom;
 }
 
 
@@ -237,8 +195,6 @@ function recalculateBHGravitationalConstant(settings) {
 }
 export function setBlackHoleEventHorizonRadius(value) {
     // This function is now deprecated. The server dictates the event horizon radius.
-    // It is kept here to prevent errors if old UI elements still call it, but it does nothing.
-    // The UI elements should be removed.
 }
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=setupSettingsModifiers##
 
@@ -306,13 +262,10 @@ export function triggerDestructionSequence(planet, impactX, impactY) {
     if (!planet || planet.isBreakingUp || planet.isDestroying || planet.isBlackHole || planet.isDestroyed) {
         return false; 
     }
-    // Client no longer generates debris here; server is authoritative.
-    // Client will receive planet state updates (isBreakingUp etc.) from server.
-    console.log(`[CLIENT] Destruction sequence for planet ${planet.id} will be driven by server state. Impact at (${impactX.toFixed(0)}, ${impactY.toFixed(0)}) noted for potential client effects.`);
-    // We can still set lastImpactPoint for client-side effects if needed immediately
     planet.lastImpactPoint = { x: impactX, y: impactY };
     return true; 
 }
+
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=destructionTrigger##
 
 
@@ -365,11 +318,16 @@ export function screenToWorld(screenCoords, state) {
 }
 export function worldToScreen(worldCoords, state) {
     if (!worldCoords || !state?.settings || !state.canvasWidth) return { x: 0, y: 0 };
-    const settings = state.settings;
-    const viewCenterX = settings.cameraOffsetX; const viewCenterY = settings.cameraOffsetY;
-    const safeZoom = Math.max(0.01, settings.cameraZoom);
-    const screenX = (worldCoords.x - viewCenterX) * safeZoom + state.canvasWidth / 2;
-    const screenY = (worldCoords.y - viewCenterY) * safeZoom + state.canvasHeight / 2;
+    
+    // This calculation needs to match the renderer's logic exactly.
+    const BASE_VIEWPORT_HEIGHT = 806;
+    const safeZoom = Math.max(0.01, state.settings.cameraZoom);
+    const cameraViewHeight = BASE_VIEWPORT_HEIGHT / safeZoom;
+    const scale = state.canvasHeight / cameraViewHeight;
+
+    const screenX = state.canvasWidth / 2 + (worldCoords.x - state.settings.cameraOffsetX) * scale;
+    const screenY = state.canvasHeight / 2 + (worldCoords.y - state.settings.cameraOffsetY) * scale;
+
     return { x: screenX, y: screenY };
 }
 export function setCameraOffset(newOffsetX, newOffsetY) {
@@ -381,7 +339,6 @@ export function setCameraOffset(newOffsetX, newOffsetY) {
 }
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=coordinateConversion##
 
-// --- BEGIN ADDITION: Canvas Dimension Setter ---
 export function setCanvasDimensions(width, height) {
     const state = getState();
     if (state) {
@@ -389,7 +346,5 @@ export function setCanvasDimensions(width, height) {
         state.canvasHeight = height;
     }
 }
-// --- END ADDITION ---
-
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=stateModifiersFileContent##
