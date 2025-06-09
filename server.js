@@ -10,10 +10,10 @@ const { createClient } = require('@supabase/supabase-js');
 
 
 // --- Server-Side Config ---
-const SV_WORLD_MIN_X = -2900; const SV_WORLD_MAX_X = 4800;
-const SV_WORLD_MIN_Y = -2015; const SV_WORLD_MAX_Y = 2015; // MODIFIED for new aspect ratio
-const SV_WORLD_WIDTH = SV_WORLD_MAX_X - SV_WORLD_MIN_X; // 7700
-const SV_WORLD_HEIGHT = SV_WORLD_MAX_Y - SV_WORLD_MIN_Y; // 4030
+const SV_WORLD_MIN_X = -2900; const SV_WORLD_MIN_Y = -2015; // Adjusted for new aspect ratio
+const SV_WORLD_MAX_X = 4800; const SV_WORLD_MAX_Y = 2015; // Adjusted for new aspect ratio
+const SV_WORLD_WIDTH = SV_WORLD_MAX_X - SV_WORLD_MIN_X;
+const SV_WORLD_HEIGHT = SV_WORLD_MAX_Y - SV_WORLD_MIN_Y;
 const SV_PIXELS_PER_METER = 0.5;
 const SV_DEFAULT_PLANET_COUNT = 6;
 const SV_MIN_PLANET_RADIUS_RANGE_PX = 20;
@@ -48,8 +48,8 @@ const SV_BH_DRAG_COEFFICIENT_MAX = 0.100;
 const SV_PROJECTILE_UPDATE_INTERVAL_MS = 50;
 const SV_PROJECTILE_SIMULATION_FPS = 60;
 const SV_PROJECTILE_SECONDS_PER_FRAME = 1 / SV_PROJECTILE_SIMULATION_FPS;
-const SV_PROJECTILE_MAX_LIFESPAN_FRAMES = 9999; 
-const SV_PROJECTILE_BOUNDS_BUFFER = 2000; 
+const SV_PROJECTILE_MAX_LIFESPAN_FRAMES = 9999;
+const SV_PROJECTILE_BOUNDS_BUFFER = 2000;
 const SV_PROJECTILE_SIZE_PX = 5;
 const SV_PROJECTILE_MIN_MASS_KG = 1;
 const SV_PROJECTILE_MAX_MASS_KG = 5000;
@@ -139,7 +139,7 @@ const publicDirectoryPath = path.join(__dirname, 'public');
 app.use(express.static(publicDirectoryPath));
 
 // --- BEGIN: State Variables ---
-let playerData = {};
+let playerData = {}; // Keyed by persistent userId
 const MAX_PLAYERS = 5;
 let serverPlanetsState = [];
 let nextServerPlanetId = 0;
@@ -335,6 +335,7 @@ function generatePlanetsOnServer(numPlanetsOverride = null) {
 // =================================================================================
 
 // --- BEGIN: Health Check Endpoint ---
+// This route is used by the hosting platform (Render) to verify the server is alive.
 app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
@@ -371,6 +372,7 @@ io.on('connection', (socket) => {
                 return;
             }
 
+            // This is a valid reconnection
             clearTimeout(existingPlayer.cleanupTimer);
             existingPlayer.cleanupTimer = null;
             existingPlayer.socketId = socket.id;
@@ -379,6 +381,7 @@ io.on('connection', (socket) => {
             console.log(`[SERVER] Player ${existingPlayer.playerName} (${trimmedUserId}) RECONNECTED with new socket ${socket.id}.`);
             io.emit('server_message', `${existingPlayer.playerName} has reconnected.`);
             
+            // If ship was destroyed while disconnected, respawn them now.
             if (!existingPlayer.isAlive) {
                 const respawnPoint = findRandomSafeSpawnPoint();
                 existingPlayer.x = respawnPoint.x;
@@ -389,6 +392,7 @@ io.on('connection', (socket) => {
                 io.emit('server_message', `${existingPlayer.playerName}'s ship was destroyed while they were away. Respawning now.`);
             }
 
+            // Let everyone know they are back and what their current state is
             io.emit('player_reconnected', existingPlayer);
 
         } 
@@ -417,7 +421,7 @@ io.on('connection', (socket) => {
                 lastFireTime: 0,
                 ping: 0,
                 cleanupTimer: null,
-                playerNumber: connectedPlayersCount + 1
+                playerNumber: connectedPlayersCount + 1 // Simple number assignment
             };
             
             console.log(`Socket ${socket.id} joined as Player ${playerData[trimmedUserId].playerNumber} (Name: \"${trimmedPlayerName}\", HP: ${playerData[trimmedUserId].health}) at (${spawnPoint.x.toFixed(0)}, ${spawnPoint.y.toFixed(0)})`);
@@ -454,8 +458,9 @@ io.on('connection', (socket) => {
 
     socket.on('request_fire_projectile', (projectileData) => {
         const player = Object.values(playerData).find(p => p.socketId === socket.id);
-        if (!player || !player.isAlive || !player.isConnected) return;
-        
+        if (!player || !player.isAlive || !player.isConnected) {
+            return;
+        }
         if (!projectileData || typeof projectileData.startX !== 'number' || typeof projectileData.massKg !== 'number' || !projectileData.tempId) {
             console.warn(`[SERVER] Invalid projectile data from ${player.playerName} (${socket.id})`);
             return;
@@ -463,7 +468,9 @@ io.on('connection', (socket) => {
 
         const FIRE_RATE_MS = 160;
         const now = Date.now();
-        if (now - player.lastFireTime < FIRE_RATE_MS) return;
+        if (now - player.lastFireTime < FIRE_RATE_MS) {
+            return;
+        }
         player.lastFireTime = now;
 
         const playerProjectiles = serverProjectiles.filter(p => p.ownerUserId === player.userId && p.isActive);
@@ -476,7 +483,9 @@ io.on('connection', (socket) => {
                     oldestProj = proj;
                 }
             }
-            if (oldestProj) oldestProj.isActive = false;
+            if (oldestProj) {
+                oldestProj.isActive = false;
+            }
         }
 
         const validatedMass = Math.max(SV_PROJECTILE_MIN_MASS_KG, Math.min(projectileData.massKg, SV_PROJECTILE_MAX_MASS_KG));
@@ -492,7 +501,8 @@ io.on('connection', (socket) => {
             y: projectileData.startY,
             prevX: projectileData.startX,
             prevY: projectileData.startY,
-            vx: vx, vy: vy,
+            vx: vx,
+            vy: vy,
             angle: projectileData.angle,
             initialSpeedInternalPxFrame: initialSpeed,
             massKg: validatedMass,

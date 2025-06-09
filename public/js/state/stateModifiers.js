@@ -1,4 +1,3 @@
-/* File: public/js/state/stateModifiers.js */
 // js/state/stateModifiers.js
 
 
@@ -13,7 +12,8 @@ import { sendProjectileFireRequest } from '../network.js';
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=stateModifiersFileContent##
 
 
-// --- Interaction State ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=interactionStateModifiers##
+// --- Interaction State ---
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=interactionStateModifiers##
 export function setClickState(newState, screenCoords = null) {
     const state = getState();
     if (!state) return;
@@ -39,7 +39,8 @@ export function setCurrentMousePos(screenCoords) {
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=interactionStateModifiers##
 
 
-// --- Ship Control Modifiers ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=shipControlModifiers##
+// --- Ship Control Modifiers ---
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=shipControlModifiers##
 export function setShipRotation(isLeft, isRight) {
     const state = getState();
     if (state && state.ship) state.ship.setRotating(isLeft, isRight); 
@@ -109,7 +110,8 @@ export function addParticleToState(particleInstance) {
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=shipControlModifiers##
 
 
-// --- In-Game Settings Modifiers ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=inGameSettingsModifiers##
+// --- In-Game Settings Modifiers ---
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=inGameSettingsModifiers##
 export function setDamageRadius(radius) {
     const state = getState(); if (!state || !state.settings) return;
     const numValue = parseInt(radius, 10);
@@ -189,7 +191,8 @@ export function setProjectileMass(mass) {
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=inGameSettingsModifiers##
 
 
-// --- BH Effect Modifiers ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=bhEffectModifiers##
+// --- BH Effect Modifiers ---
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=bhEffectModifiers##
 export function setBHParticleLifeFactor(factor) { const s=getState()?.settings; if(s){const val = parseFloat(factor); s.bhParticleLifeFactor=Math.max(0.1, isNaN(val)?config.defaultBHParticleLifeFactor:val);} }
 export function setBHParticleSpeedFactor(factor) { const s=getState()?.settings; if(s){const val = parseFloat(factor); s.bhParticleSpeedFactor=Math.max(0.1, isNaN(val)?config.defaultBHParticleSpeedFactor:val);} }
 export function setBHParticleSpawnRate(rate) { const s=getState()?.settings; if(s){const val = parseInt(rate, 10); s.bhParticleSpawnRate=Math.max(0, isNaN(val)?config.defaultBHParticleSpawnRate:val);} }
@@ -205,7 +208,8 @@ export function setBHDragCoefficientMax(coefficient) { const s = getState()?.set
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=bhEffectModifiers##
 
 
-// --- Other Tunable Params Modifiers ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=tunableParamModifiers##
+// --- Other Tunable Params Modifiers ---
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=tunableParamModifiers##
 export function setPlanetGravityMultiplier(internalValue) { 
     const state = getState(); if (state && state.settings) { const numValue = parseFloat(internalValue); const internalDefault = config.defaultPlanetGravityMultiplier * config.PLANET_GRAVITY_HUD_SCALE_FACTOR; const internalMin = config.minPlanetGravityMultiplier * config.PLANET_GRAVITY_HUD_SCALE_FACTOR; state.settings.planetGravityMultiplier = Math.max(internalMin, isNaN(numValue) ? internalDefault : numValue); recalculateBHGravitationalConstant(state.settings); }
 }
@@ -219,7 +223,8 @@ export function setBHEnergyMultiplier(value) { const state = getState(); if (sta
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=tunableParamModifiers##
 
 
-// --- Setup Settings Modifiers ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=setupSettingsModifiers##
+// --- Setup Settings Modifiers ---
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=setupSettingsModifiers##
 export function setSetupPlanetCount(count) {
     const s=getState()?.settings; if(s){const val = parseInt(count, 10); s.planetCount = Math.max(config.minPlanetCount, Math.min(config.maxPlanetCount, isNaN(val)?config.defaultPlanetCount:val));}
 }
@@ -238,7 +243,8 @@ export function setBlackHoleEventHorizonRadius(value) {
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=setupSettingsModifiers##
 
 
-// --- Core Game State Changes ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=coreStateChangeModifiers##
+// --- Core Game State Changes ---
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=coreStateChangeModifiers##
 export function addCrater(planet, x, y, craterRadius_pixels, massEjected_kg, impactKE, impactSpeed_mps = null) {
     if (!planet || planet.massKg === undefined || !isFinite(planet.massKg)) {
         console.error("addCrater (client): Invalid planet object provided.", planet);
@@ -294,7 +300,8 @@ export function filterDebris() {
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=coreStateChangeModifiers##
 
 
-// --- Destruction Sequence Trigger (Client-side visual prediction / initiation) ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=destructionTrigger##
+// --- Destruction Sequence Trigger (Client-side visual prediction / initiation) ---
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=destructionTrigger##
 export function triggerDestructionSequence(planet, impactX, impactY) {
     if (!planet || planet.isBreakingUp || planet.isDestroying || planet.isBlackHole || planet.isDestroyed) {
         return false; 
@@ -306,12 +313,11 @@ export function triggerDestructionSequence(planet, impactX, impactY) {
     planet.lastImpactPoint = { x: impactX, y: impactY };
     return true; 
 }
-
-// generateInitialDebris function is fully removed.
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=destructionTrigger##
 
 
-// --- State Phase Setters (Client-side visual/predictive state changes) ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=statePhaseSetters##
+// --- State Phase Setters (Client-side visual/predictive state changes) ---
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=statePhaseSetters##
 export function advanceBreakupFrame(planet) { if (planet && planet.isBreakingUp) planet.breakupFrame++; } 
 export function advanceExplosionFrame(planet) { if (planet && planet.isDestroying) planet.explosionFrame++; } 
 export function advanceDestructionElapsedTime(planet) { 
@@ -346,7 +352,8 @@ export function setShockwaveReversalRadius(planet, radius) { if (planet) { plane
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=statePhaseSetters##
 
 
-// --- Camera Coordinate Conversion & Offset ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=coordinateConversion##
+// --- Camera Coordinate Conversion & Offset ---
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=coordinateConversion##
 export function screenToWorld(screenCoords, state) {
     if (!screenCoords || !state?.settings || !state.canvasWidth) return { x: 0, y: 0 };
     const settings = state.settings;
@@ -373,6 +380,16 @@ export function setCameraOffset(newOffsetX, newOffsetY) {
     }
 }
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=coordinateConversion##
+
+// --- BEGIN ADDITION: Canvas Dimension Setter ---
+export function setCanvasDimensions(width, height) {
+    const state = getState();
+    if (state) {
+        state.canvasWidth = width;
+        state.canvasHeight = height;
+    }
+}
+// --- END ADDITION ---
 
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=stateModifiersFileContent##

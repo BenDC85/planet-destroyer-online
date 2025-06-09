@@ -6,109 +6,121 @@ import * as drawDebris from './drawDebris.js';
 import * as drawEffects from './drawEffects.js';
 import * as drawUI from './drawUI.js';
 import { renderShip } from './drawShip.js'; 
+import { getMyPlayerId } from '../network.js';
 
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=rendererFileContent##
+
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=rendererModuleState##
 let ctx = null; 
+// Obsolete: canvasWidth and canvasHeight are now managed in gameState
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_END=rendererModuleState##
 
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=initializeRendererFunction##
 export function initializeRenderer(canvasContext) {
     if (!canvasContext) { console.error("Context required for renderer."); return false; }
     ctx = canvasContext;
     return true;
 }
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_END=initializeRendererFunction##
 
-function drawGrid(ctx, startX, startY, endX, endY, gridSize, totalScale) {
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=drawGridFunction##
+function drawGrid(ctx, startX, startY, endX, endY, gridSize, scale) { // Use scale instead of zoom
     if (typeof startX === 'undefined' || typeof gridSize === 'undefined' || gridSize <= 0) return; 
     ctx.save();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)'; 
-    // The line width must be adjusted by the *total* applied scale to appear as 1px.
-    const safeTotalScale = Math.max(0.01, totalScale);
-    ctx.lineWidth = 1 / safeTotalScale; 
-    
+    const safeScale = Math.max(0.01, scale);
+    ctx.lineWidth = 1 / safeScale; 
     let firstX = Math.ceil(startX / gridSize) * gridSize;
     for (let x = firstX; x <= endX; x += gridSize) {
         ctx.beginPath(); ctx.moveTo(x, startY); ctx.lineTo(x, endY); ctx.stroke();
     }
-    
     let firstY = Math.ceil(startY / gridSize) * gridSize;
     for (let y = firstY; y <= endY; y += gridSize) {
         ctx.beginPath(); ctx.moveTo(startX, y); ctx.lineTo(endX, y); ctx.stroke();
     }
     ctx.restore();
 }
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_END=drawGridFunction##
 
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=renderGameFunction##
 export function renderGame() {
     if (!ctx) return;
     const state = getState(); 
     if (!state || !state.settings) return; 
-    const { settings, canvasWidth, canvasHeight } = state;
-
-    // --- 1. Clear and Prepare Canvas ---
-    // Clear the entire canvas with a black background for letter/pillarboxing.
+    const settings = state.settings;
+    
+    const canvasWidth = state.canvasWidth;
+    const canvasHeight = state.canvasHeight;
+    
+    // Clear canvas with black for letterboxing/pillarboxing
     ctx.fillStyle = '#000000'; 
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
-    ctx.save(); 
+    ctx.save();
 
-    // --- 2. Calculate Aspect-Ratio-Correct Transformations ---
+    // --- NEW: Aspect-Ratio Correct Rendering Logic ---
     const worldWidth = settings.worldWidth;
     const worldHeight = settings.worldHeight;
-    const worldRatio = worldWidth / worldHeight;
-    const canvasRatio = canvasWidth / canvasHeight;
+    const worldAspectRatio = worldWidth / worldHeight;
+    const canvasAspectRatio = canvasWidth / canvasHeight;
 
-    let baseScale = 1;
-    let offsetX = 0;
-    let offsetY = 0;
-
-    if (canvasRatio > worldRatio) { // Canvas is wider than world -> pillarbox (bars on sides)
-        baseScale = canvasHeight / worldHeight;
-        offsetX = (canvasWidth - worldWidth * baseScale) / 2;
-    } else { // Canvas is taller or same ratio -> letterbox (bars on top/bottom)
-        baseScale = canvasWidth / worldWidth;
-        offsetY = (canvasHeight - worldHeight * baseScale) / 2;
+    let scale = 1;
+    let renderX = 0;
+    let renderY = 0;
+    
+    if (canvasAspectRatio > worldAspectRatio) {
+        // Canvas is wider than the world (letterbox)
+        scale = canvasHeight / worldHeight;
+        renderX = (canvasWidth - worldWidth * scale) / 2;
+        renderY = 0;
+    } else {
+        // Canvas is taller than the world (pillarbox)
+        scale = canvasWidth / worldWidth;
+        renderX = 0;
+        renderY = (canvasHeight - worldHeight * scale) / 2;
     }
-    
-    const viewCenterX = settings.cameraOffsetX;
-    const viewCenterY = settings.cameraOffsetY;
-    const cameraZoom = Math.max(0.01, settings.cameraZoom);
-    
-    // --- 3. Apply Transformations ---
-    // First, move to the top-left of the centered game area (handles letterboxing).
-    ctx.translate(offsetX, offsetY);
-    
-    // The new "canvas" for the camera is `worldWidth * baseScale` by `worldHeight * baseScale`.
-    const viewAreaWidth = worldWidth * baseScale;
-    const viewAreaHeight = worldHeight * baseScale;
 
-    // Move origin to the center of this new "canvas" to apply zoom correctly.
-    ctx.translate(viewAreaWidth / 2, viewAreaHeight / 2);
-    // Apply the player's desired zoom level.
-    ctx.scale(cameraZoom, cameraZoom);
-    // Pan the world so the camera's target is at the center of the viewport.
+    // Apply the letterboxing/pillarboxing translation and scale
+    ctx.translate(renderX, renderY);
+    ctx.scale(scale, scale);
+    
+    // Now apply the camera zoom and offset relative to the scaled world
+    const viewCenterX = settings.cameraOffsetX; 
+    const viewCenterY = settings.cameraOffsetY;
+    const safeZoom = Math.max(0.01, settings.cameraZoom);
+    
+    // Translate to the center of the viewport (which is now the scaled world size)
+    ctx.translate(worldWidth / 2, worldHeight / 2);
+    // Apply camera zoom
+    ctx.scale(safeZoom, safeZoom);
+    // Translate by the camera's offset
     ctx.translate(-viewCenterX, -viewCenterY);
     
-    // The total scale applied to the world is the base scale times the camera zoom.
-    const totalScale = baseScale * cameraZoom;
+    // --- End of New Rendering Logic ---
 
-    // --- 4. Render Game Elements ---
+    // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=drawBackgroundElements##
+    if (typeof settings.worldMinX !== 'undefined') {
+        drawGrid(ctx, settings.worldMinX, settings.worldMinY, settings.worldMaxX, settings.worldMaxY, 100, scale * safeZoom);
+        ctx.save(); ctx.strokeStyle = 'rgba(255,0,0,0.5)'; 
+        ctx.lineWidth = 5 / (scale * safeZoom); 
+        ctx.strokeRect(settings.worldMinX, settings.worldMinY, settings.worldWidth, settings.worldHeight);
+        ctx.restore();
+    }
+    // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=drawBackgroundElements##
 
-    // Draw background grid and borders
-    drawGrid(ctx, settings.worldMinX, settings.worldMinY, settings.worldMaxX, settings.worldMaxY, 100, totalScale);
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,0,0,0.5)'; 
-    ctx.lineWidth = 5 / totalScale;
-    ctx.strokeRect(settings.worldMinX, settings.worldMinY, settings.worldWidth, settings.worldHeight);
-    ctx.restore();
-
-    // Render planets and their effects
+    // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=renderPlanetsLoop##
     state.planets.forEach(planet => {
         drawPlanet.renderPlanetState(ctx, planet); 
         drawEffects.renderCoreEffects(ctx, planet, settings); 
         drawEffects.renderShockwaves(ctx, planet, settings);
     });
+    // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=renderPlanetsLoop##
 
-    // Render all debris (projectiles, chunks, particles)
+    // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=renderGlobalDebris##
     drawDebris.renderDebris(ctx, state);
+    // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=renderGlobalDebris##
 
-    // Render player and remote ships
+    // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=renderPlayerShip##
     if (state.ship) { 
         ctx.save();
         ctx.translate(state.ship.x, state.ship.y);
@@ -117,23 +129,28 @@ export function renderGame() {
         ctx.restore();
     }
 
-    if (state.remotePlayers) {
-        for (const playerId in state.remotePlayers) {
-            const remoteShip = state.remotePlayers[playerId];
-            if (remoteShip) { 
-                // console.log(`[RENDERER] Drawing remote ship: ${remoteShip.name} (ID: ${playerId})`);
+    if (state.remotePlayers) { 
+        for (const playerIdFromState in state.remotePlayers) {
+            const remoteShipInstance = state.remotePlayers[playerIdFromState];
+            if (remoteShipInstance) { 
+                // console.log(`[RENDERER] Drawing remote ship: ${remoteShipInstance.name} (ID: ${playerIdFromState}) at X:${remoteShipInstance.x.toFixed(0)}, Y:${remoteShipInstance.y.toFixed(0)}`);
                 ctx.save();
-                ctx.translate(remoteShip.x, remoteShip.y);
-                ctx.rotate(remoteShip.angle);
-                renderShip(ctx, remoteShip); 
+                ctx.translate(remoteShipInstance.x, remoteShipInstance.y);
+                ctx.rotate(remoteShipInstance.angle);
+                renderShip(ctx, remoteShipInstance); 
                 ctx.restore();
+            } else {
+                console.warn(`[RENDERER] remoteShipInstance for playerId ${playerIdFromState} is null/undefined in state.remotePlayers.`);
             }
         }
     }
-    
-    // --- 5. Restore and Render UI ---
-    ctx.restore(); // This undoes all the transformations, returning to normal canvas space.
-    
-    // The UI is drawn last, on top of everything, in standard canvas coordinates.
+    // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=renderPlayerShip##
+
+    ctx.restore(); 
+    // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=renderOverlayUI##
     drawUI.renderOverlayUI(ctx, state);
+    // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=renderOverlayUI##
 }
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_END=renderGameFunction##
+
+// ##AI_AUTOMATION::TARGET_ID_DEFINE_END=rendererFileContent##
