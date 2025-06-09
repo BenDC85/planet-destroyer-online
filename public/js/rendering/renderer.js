@@ -12,7 +12,8 @@ import { getMyPlayerId } from '../network.js';
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=rendererModuleState##
 let ctx = null; 
-// Obsolete: canvasWidth and canvasHeight are now managed in gameState
+// This is a reference value. At a camera zoom of 1.0, the viewport will be this many world-pixels tall.
+const REFERENCE_VIEW_HEIGHT = 2160; 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=rendererModuleState##
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=initializeRendererFunction##
@@ -24,11 +25,11 @@ export function initializeRenderer(canvasContext) {
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=initializeRendererFunction##
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=drawGridFunction##
-function drawGrid(ctx, startX, startY, endX, endY, gridSize, scale) { // Use scale instead of zoom
+function drawGrid(ctx, startX, startY, endX, endY, gridSize, scale) {
     if (typeof startX === 'undefined' || typeof gridSize === 'undefined' || gridSize <= 0) return; 
     ctx.save();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)'; 
-    const safeScale = Math.max(0.01, scale);
+    const safeScale = Math.max(0.0001, scale);
     ctx.lineWidth = 1 / safeScale; 
     let firstX = Math.ceil(startX / gridSize) * gridSize;
     for (let x = firstX; x <= endX; x += gridSize) {
@@ -52,57 +53,36 @@ export function renderGame() {
     const canvasWidth = state.canvasWidth;
     const canvasHeight = state.canvasHeight;
     
-    // Clear canvas with black for letterboxing/pillarboxing
+    // Clear the entire canvas with black
     ctx.fillStyle = '#000000'; 
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
     ctx.save();
 
-    // --- NEW: Aspect-Ratio Correct Rendering Logic ---
-    const worldWidth = settings.worldWidth;
-    const worldHeight = settings.worldHeight;
-    const worldAspectRatio = worldWidth / worldHeight;
-    const canvasAspectRatio = canvasWidth / canvasHeight;
+    // --- NEW: Field-of-View Based Rendering (No Distortion) ---
 
-    let scale = 1;
-    let renderX = 0;
-    let renderY = 0;
-    
-    if (canvasAspectRatio > worldAspectRatio) {
-        // Canvas is wider than the world (letterbox)
-        scale = canvasHeight / worldHeight;
-        renderX = (canvasWidth - worldWidth * scale) / 2;
-        renderY = 0;
-    } else {
-        // Canvas is taller than the world (pillarbox)
-        scale = canvasWidth / worldWidth;
-        renderX = 0;
-        renderY = (canvasHeight - worldHeight * scale) / 2;
-    }
+    // 1. Determine the scale based on the desired vertical field of view and the canvas height.
+    // A larger cameraZoom value from the user means we see a smaller vertical portion of the world, hence we are "zoomed in".
+    const verticalViewHeight = REFERENCE_VIEW_HEIGHT / settings.cameraZoom;
+    const scale = canvasHeight / verticalViewHeight;
 
-    // Apply the letterboxing/pillarboxing translation and scale
-    ctx.translate(renderX, renderY);
+    // 2. Apply transformations.
+    // First, move the origin to the center of the canvas.
+    ctx.translate(canvasWidth / 2, canvasHeight / 2);
+    // Second, apply the calculated uniform scale.
     ctx.scale(scale, scale);
-    
-    // Now apply the camera zoom and offset relative to the scaled world
-    const viewCenterX = settings.cameraOffsetX; 
-    const viewCenterY = settings.cameraOffsetY;
-    const safeZoom = Math.max(0.01, settings.cameraZoom);
-    
-    // Translate to the center of the viewport (which is now the scaled world size)
-    ctx.translate(worldWidth / 2, worldHeight / 2);
-    // Apply camera zoom
-    ctx.scale(safeZoom, safeZoom);
-    // Translate by the camera's offset
-    ctx.translate(-viewCenterX, -viewCenterY);
+    // Third, move the view to center on the camera's world coordinates.
+    ctx.translate(-settings.cameraOffsetX, -settings.cameraOffsetY);
     
     // --- End of New Rendering Logic ---
 
     // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=drawBackgroundElements##
     if (typeof settings.worldMinX !== 'undefined') {
-        drawGrid(ctx, settings.worldMinX, settings.worldMinY, settings.worldMaxX, settings.worldMaxY, 100, scale * safeZoom);
-        ctx.save(); ctx.strokeStyle = 'rgba(255,0,0,0.5)'; 
-        ctx.lineWidth = 5 / (scale * safeZoom); 
+        // Pass the final calculated scale to the grid and border functions for correct line width.
+        drawGrid(ctx, settings.worldMinX, settings.worldMinY, settings.worldMaxX, settings.worldMaxY, 100, scale);
+        ctx.save(); 
+        ctx.strokeStyle = 'rgba(255,0,0,0.5)'; 
+        ctx.lineWidth = 5 / scale; 
         ctx.strokeRect(settings.worldMinX, settings.worldMinY, settings.worldWidth, settings.worldHeight);
         ctx.restore();
     }
