@@ -10,8 +10,8 @@ const { createClient } = require('@supabase/supabase-js');
 
 
 // --- Server-Side Config ---
-const SV_WORLD_MIN_X = -2900; const SV_WORLD_MIN_Y = -2015; // Adjusted for new aspect ratio
-const SV_WORLD_MAX_X = 4800; const SV_WORLD_MAX_Y = 2015; // Adjusted for new aspect ratio
+const SV_WORLD_MIN_X = -3092; const SV_WORLD_MIN_Y = -2015; // Adjusted for new aspect ratio was -2900 (a bigger negative number will increase **one** side)
+const SV_WORLD_MAX_X = 4992; const SV_WORLD_MAX_Y = 2015; // Adjusted for new aspect ratio was 4800 (a bigger positive number will increase the **other** side)
 const SV_WORLD_WIDTH = SV_WORLD_MAX_X - SV_WORLD_MIN_X;
 const SV_WORLD_HEIGHT = SV_WORLD_MAX_Y - SV_WORLD_MIN_Y;
 const SV_PIXELS_PER_METER = 0.5;

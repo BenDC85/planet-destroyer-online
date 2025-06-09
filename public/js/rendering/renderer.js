@@ -62,21 +62,32 @@ export function renderGame() {
     
     ctx.save();
 
-    // --- NEW: Corrected Rendering Logic ---
+    // --- NEW: Adaptive Aspect Ratio Logic ---
     const safeZoom = Math.max(0.01, settings.cameraZoom);
-    
-    // 1. Determine the current height of the camera's view in world units.
-    const cameraViewHeight = BASE_VIEWPORT_HEIGHT / safeZoom;
-    
-    // 2. Calculate the single, uniform scale factor needed to fit this view height onto the canvas.
-    const scale = canvasHeight / cameraViewHeight;
 
-    // 3. Apply the transformations in the correct order.
-    ctx.translate(canvasWidth / 2, canvasHeight / 2); // Center the origin on the canvas
-    ctx.scale(scale, scale);                           // Apply the uniform scale
-    ctx.translate(-settings.cameraOffsetX, -settings.cameraOffsetY); // Move the world according to the camera
+    // 1. Define the camera's desired viewport dimensions in world units.
+    const cameraViewHeight = BASE_VIEWPORT_HEIGHT / safeZoom;
+    // **THE FIX**: Calculate width based on the authoritative world dimensions from the server.
+    const cameraViewWidth = (BASE_VIEWPORT_HEIGHT * (settings.worldWidth / settings.worldHeight)) / safeZoom;
+
+    // 2. Compare the aspect ratio of the canvas to the desired camera view.
+    const canvasAspectRatio = canvasWidth / canvasHeight;
+    const cameraAspectRatio = cameraViewWidth / cameraViewHeight;
+
+    let scale = 1;
+    if (canvasAspectRatio > cameraAspectRatio) {
+        // Canvas is WIDER than the camera view, so the view is limited by its height.
+        scale = canvasHeight / cameraViewHeight;
+    } else {
+        // Canvas is TALLER (or same ratio), so the view is limited by its width.
+        scale = canvasWidth / cameraViewWidth;
+    }
     
-    // --- End of Corrected Rendering Logic ---
+    // 3. Apply the transformations.
+    ctx.translate(canvasWidth / 2, canvasHeight / 2);
+    ctx.scale(scale, scale);
+    ctx.translate(-settings.cameraOffsetX, -settings.cameraOffsetY);
+    // --- End of New Rendering Logic ---
 
 
     // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=drawBackgroundElements##
