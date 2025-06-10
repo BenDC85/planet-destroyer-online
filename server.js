@@ -461,7 +461,8 @@ io.on('connection', (socket) => {
         if (!player || !player.isAlive || !player.isConnected) {
             return;
         }
-        if (!projectileData || typeof projectileData.startX !== 'number' || typeof projectileData.massKg !== 'number' || !projectileData.tempId) {
+        // Validate only the necessary data from the client
+        if (!projectileData || typeof projectileData.massKg !== 'number' || !projectileData.tempId) {
             console.warn(`[SERVER] Invalid projectile data from ${player.playerName} (${socket.id})`);
             return;
         }
@@ -488,28 +489,37 @@ io.on('connection', (socket) => {
             }
         }
 
-        const validatedMass = Math.max(SV_PROJECTILE_MIN_MASS_KG, Math.min(projectileData.massKg, SV_PROJECTILE_MAX_MASS_KG));
+        // --- SECURITY FIX: Generate projectile state on the server ---
+        // Do NOT trust client for position or angle. Use server's authoritative data.
         const serverProjId = `srv_proj_${nextProjectileId++}`;
-        const initialSpeed = projectileData.initialSpeedInternalPxFrame;
-        const vx = Math.cos(projectileData.angle) * initialSpeed;
-        const vy = Math.sin(projectileData.angle) * initialSpeed;
+        const initialSpeed = projectileData.initialSpeedInternalPxFrame; // Client can still suggest speed
+        const validatedMass = Math.max(SV_PROJECTILE_MIN_MASS_KG, Math.min(projectileData.massKg, SV_PROJECTILE_MAX_MASS_KG));
+
+        // Use server's own player state for position and direction
+        const muzzleOffsetX = Math.cos(player.angle) * SV_SHIP_RADIUS_PX * 1.1;
+        const muzzleOffsetY = Math.sin(player.angle) * SV_SHIP_RADIUS_PX * 1.1;
+        const startX = player.x + muzzleOffsetX;
+        const startY = player.y + muzzleOffsetY;
+        const vx = Math.cos(player.angle) * initialSpeed;
+        const vy = Math.sin(player.angle) * initialSpeed;
         
         const newServerProjectile = {
             id: serverProjId,
             ownerUserId: player.userId,
-            x: projectileData.startX,
-            y: projectileData.startY,
-            prevX: projectileData.startX,
-            prevY: projectileData.startY,
-            vx: vx,
-            vy: vy,
-            angle: projectileData.angle,
+            x: startX,          // Authoritative start X
+            y: startY,          // Authoritative start Y
+            prevX: startX,      // Authoritative previous X
+            prevY: startY,      // Authoritative previous Y
+            vx: vx,             // Authoritative velocity X
+            vy: vy,             // Authoritative velocity Y
+            angle: player.angle,// Authoritative angle
             initialSpeedInternalPxFrame: initialSpeed,
             massKg: validatedMass,
             isActive: true,
             framesAlive: 0,
             tempId: projectileData.tempId 
         };
+        // --- END OF SECURITY FIX ---
 
         serverProjectiles.push(newServerProjectile);
         io.emit('new_projectile_created', newServerProjectile);
@@ -578,7 +588,8 @@ io.on('connection', (socket) => {
                 nextProjectileId = 0;
                 serverChunks = [];
                 nextServerChunkId = 0;
-                playerData = {};
+                // --- BUG FIX: Do NOT clear playerData. This preserves data for reconnects. ---
+                // playerData = {}; // <-- This line was removed.
             }
         } else {
             console.log(`--- Client disconnected: ${socket.id} (was not an active player or already removed) ---`);
@@ -1159,6 +1170,14 @@ setInterval(() => {
         io.emit('chunks_update', chunkUpdates);
     }
 }, SV_PROJECTILE_UPDATE_INTERVAL_MS);
+
+// --- BEGIN: Server-to-Client Heartbeat ---
+// Sends a small message to all clients every 25 seconds to prevent
+// idle connection timeouts on hosting platforms like Render.
+setInterval(() => {
+    io.emit('server_heartbeat');
+}, 25000); // 25 seconds
+// --- END: Server-to-Client Heartbeat ---
 
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server for Planet Destroyer Online is running on http://0.0.0.0:${PORT}`);

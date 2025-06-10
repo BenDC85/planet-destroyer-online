@@ -12,24 +12,7 @@ import { sendProjectileFireRequest } from '../network.js';
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=stateModifiersFileContent##
 
 
-// --- Interaction State ---
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=interactionStateModifiers##
-export function setClickState(newState, screenCoords = null) {
-    const state = getState();
-    if (!state) return;
-    state.clickState = newState;
-
-
-    if (newState === 'idle') {
-        state.firstClickCoords = null;
-    } else if (newState === 'waitingForSecondClick' && screenCoords) {
-        state.currentMousePos = { ...screenCoords };
-        state.worldMousePos = screenToWorld(screenCoords, state);
-        state.firstClickCoords = { ...state.worldMousePos };
-    }
-}
-
-
+// --- Interaction State ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=interactionStateModifiers##
 export function setCurrentMousePos(screenCoords) {
     const state = getState();
     if (!state) return;
@@ -39,8 +22,7 @@ export function setCurrentMousePos(screenCoords) {
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=interactionStateModifiers##
 
 
-// --- Ship Control Modifiers ---
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=shipControlModifiers##
+// --- Ship Control Modifiers ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=shipControlModifiers##
 export function setShipRotation(isLeft, isRight) {
     const state = getState();
     if (state && state.ship) state.ship.setRotating(isLeft, isRight); 
@@ -60,7 +42,7 @@ export function adjustShipAngle(deltaAngle) {
  * fireShipProjectile - REFACTORED for Client-Side Prediction
  * This function now has two roles:
  * 1. It prepares the projectile data and sends a request to the server.
- * 2. It returns the complete data for a "ghost" projectile so the client can render it instantly.
+ * 2. It returns the complete data for a \"ghost\" projectile so the client can render it instantly.
  */
 export function fireShipProjectile() {
     const state = getState();
@@ -105,19 +87,8 @@ export function addParticleToState(particleInstance) {
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=shipControlModifiers##
 
 
-// --- In-Game Settings Modifiers ---
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=inGameSettingsModifiers##
-export function setDamageRadius(radius) {
-    const state = getState(); if (!state || !state.settings) return;
-    const numValue = parseInt(radius, 10);
-    state.settings.baseDamageRadius = Math.max(config.minDamageRadius, Math.min(config.maxDamageRadius, isNaN(numValue) ? config.defaultBaseDamageRadius : numValue));
-}
-
-
-// ** THE FIX IS HERE **
-// This function is now greatly simplified. It only updates the zoom value.
-// The renderer is now solely responsible for calculating the resulting view.
-export function setCameraZoom(newZoomRaw) {
+// --- In-Game Settings Modifiers ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=inGameSettingsModifiers##
+// ** THE FIX IS HERE **\n// This function is now greatly simplified. It only updates the zoom value.\n// The renderer is now solely responsible for calculating the resulting view.\nexport function setCameraZoom(newZoomRaw) {
     const state = getState();
     if (!state || !state.settings) return;
 
@@ -132,25 +103,19 @@ export function setPersistentChunkDrift(isEnabled) {
     const state = getState(); if (state && state.settings) state.settings.persistentChunkDrift = !!isEnabled;
 }
 export function setShipZoomAttractFactor(factor) {
-    const state = getState(); if (state && state.settings) { const numValue = parseFloat(factor); state.settings.shipZoomAttractFactor = Math.max(config.MIN_SHIP_ZOOM_ATTRACT_FACTOR, Math.min(config.MAX_SHIP_ZOOM_ATTRACT_FACTOR, isNaN(numValue) ? config.DEFAULT_SHIP_ZOOM_ATTRACT_FACTOR : numValue)); }
-}
+    const state = getState(); if (state && state.settings) { const numValue = parseFloat(factor); state.settings.shipZoomAttractFactor = Math.max(config.MIN_SHIP_ZOOM_ATTRACT_FACTOR, Math.min(config.MAX_SHIP_ZOOM_ATTRACT_FACTOR, isNaN(numValue) ? config.DEFAULT_SHIP_ZOOM_ATTRACT_FACTOR : numValue)); }\n}
 export function setPlanetZoomAttractFactor(factor) {
-    const state = getState(); if (state && state.settings) { const numValue = parseFloat(factor); state.settings.planetZoomAttractFactor = Math.max(config.MIN_PLANET_ZOOM_ATTRACT_FACTOR, Math.min(config.MAX_PLANET_ZOOM_ATTRACT_FACTOR, isNaN(numValue) ? config.DEFAULT_PLANET_ZOOM_ATTRACT_FACTOR : numValue)); }
-}
+    const state = getState(); if (state && state.settings) { const numValue = parseFloat(factor); state.settings.planetZoomAttractFactor = Math.max(config.MIN_PLANET_ZOOM_ATTRACT_FACTOR, Math.min(config.MAX_PLANET_ZOOM_ATTRACT_FACTOR, isNaN(numValue) ? config.DEFAULT_PLANET_ZOOM_ATTRACT_FACTOR : numValue)); }\n}
 export function setProjectileLaunchSpeed(internalSpeed) { 
-    const state = getState(); if (state && state.settings) { const numValue = parseFloat(internalSpeed); const internalDefault = config.defaultProjectileSpeed * config.PROJECTILE_SPEED_HUD_SCALE_FACTOR; state.settings.projectileSpeed = Math.min(config.MAX_PROJECTILE_SPEED_INTERNAL, Math.max(config.MIN_PROJECTILE_SPEED_INTERNAL, isNaN(numValue) ? internalDefault : numValue)); }
-}
+    const state = getState(); if (state && state.settings) { const numValue = parseFloat(internalSpeed); const internalDefault = config.defaultProjectileSpeed * config.PROJECTILE_SPEED_HUD_SCALE_FACTOR; state.settings.projectileSpeed = Math.min(config.MAX_PROJECTILE_SPEED_INTERNAL, Math.max(config.MIN_PROJECTILE_SPEED_INTERNAL, isNaN(numValue) ? internalDefault : numValue)); }\n}
 export function adjustProjectileLaunchSpeed(increase) {
-    const state = getState(); if (state && state.settings) { let currentInternalSpeed = state.settings.projectileSpeed; currentInternalSpeed += increase ? config.PROJECTILE_SPEED_STEP_INTERNAL : -config.PROJECTILE_SPEED_STEP_INTERNAL; setProjectileLaunchSpeed(currentInternalSpeed); }
-}
+    const state = getState(); if (state && state.settings) { let currentInternalSpeed = state.settings.projectileSpeed; currentInternalSpeed += increase ? config.PROJECTILE_SPEED_STEP_INTERNAL : -config.PROJECTILE_SPEED_STEP_INTERNAL; setProjectileLaunchSpeed(currentInternalSpeed); }\n}
 export function setProjectileMass(mass) {
-    const state = getState(); if (state && state.settings) { const numValue = parseFloat(mass); state.settings.projectileMass = Math.max(config.minProjectileMass, isNaN(numValue) ? config.defaultProjectileMass : numValue); }
-}
+    const state = getState(); if (state && state.settings) { const numValue = parseFloat(mass); state.settings.projectileMass = Math.max(config.minProjectileMass, isNaN(numValue) ? config.defaultProjectileMass : numValue); }\n}
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=inGameSettingsModifiers##
 
 
-// --- BH Effect Modifiers ---
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=bhEffectModifiers##
+// --- BH Effect Modifiers ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=bhEffectModifiers##
 export function setBHParticleLifeFactor(factor) { const s=getState()?.settings; if(s){const val = parseFloat(factor); s.bhParticleLifeFactor=Math.max(0.1, isNaN(val)?config.defaultBHParticleLifeFactor:val);} }
 export function setBHParticleSpeedFactor(factor) { const s=getState()?.settings; if(s){const val = parseFloat(factor); s.bhParticleSpeedFactor=Math.max(0.1, isNaN(val)?config.defaultBHParticleSpeedFactor:val);} }
 export function setBHParticleSpawnRate(rate) { const s=getState()?.settings; if(s){const val = parseInt(rate, 10); s.bhParticleSpawnRate=Math.max(0, isNaN(val)?config.defaultBHParticleSpawnRate:val);} }
@@ -166,11 +131,9 @@ export function setBHDragCoefficientMax(coefficient) { const s = getState()?.set
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=bhEffectModifiers##
 
 
-// --- Other Tunable Params Modifiers ---
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=tunableParamModifiers##
+// --- Other Tunable Params Modifiers ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=tunableParamModifiers##
 export function setPlanetGravityMultiplier(internalValue) { 
-    const state = getState(); if (state && state.settings) { const numValue = parseFloat(internalValue); const internalDefault = config.defaultPlanetGravityMultiplier * config.PLANET_GRAVITY_HUD_SCALE_FACTOR; const internalMin = config.minPlanetGravityMultiplier * config.PLANET_GRAVITY_HUD_SCALE_FACTOR; state.settings.planetGravityMultiplier = Math.max(internalMin, isNaN(numValue) ? internalDefault : numValue); recalculateBHGravitationalConstant(state.settings); }
-}
+    const state = getState(); if (state && state.settings) { const numValue = parseFloat(internalValue); const internalDefault = config.defaultPlanetGravityMultiplier * config.PLANET_GRAVITY_HUD_SCALE_FACTOR; const internalMin = config.minPlanetGravityMultiplier * config.PLANET_GRAVITY_HUD_SCALE_FACTOR; state.settings.planetGravityMultiplier = Math.max(internalMin, isNaN(numValue) ? internalDefault : numValue); recalculateBHGravitationalConstant(state.settings); }\n}
 export function setChunkLifespan(frames) { const s=getState()?.settings; if(s){const val = parseInt(frames, 10); s.chunkLifespanFrames=Math.max(config.minChunkLifespan, isNaN(val)?config.defaultChunkLifespan:val);} }
 export function setChunkMaxSpeed(speed) { const s=getState()?.settings; if(s){const val = parseInt(speed, 10); s.chunkMaxSpeedThreshold=Math.max(config.minChunkMaxSpeed, Math.min(config.maxChunkMaxSpeed, isNaN(val)?config.defaultChunkMaxSpeed:val));} }
 export function setCoreExplosionDuration(frames) { const s=getState()?.settings; if(s){const val = parseInt(frames, 10); s.coreExplosionDuration=Math.max(config.minCoreExplosionDuration, Math.min(config.maxCoreExplosionDuration, isNaN(val)?config.defaultCoreExplosionDuration:val));} }
@@ -181,26 +144,19 @@ export function setBHEnergyMultiplier(value) { const state = getState(); if (sta
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=tunableParamModifiers##
 
 
-// --- Setup Settings Modifiers ---
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=setupSettingsModifiers##
+// --- Setup Settings Modifiers ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=setupSettingsModifiers##
 export function setSetupPlanetCount(count) {
-    const s=getState()?.settings; if(s){const val = parseInt(count, 10); s.planetCount = Math.max(config.minPlanetCount, Math.min(config.maxPlanetCount, isNaN(val)?config.defaultPlanetCount:val));}
-}
+    const s=getState()?.settings; if(s){const val = parseInt(count, 10); s.planetCount = Math.max(config.minPlanetCount, Math.min(config.maxPlanetCount, isNaN(val)?config.defaultPlanetCount:val));}\n}
 export function setBHGravityFactor(factor) { 
-    const state = getState(); if (state && state.settings) { const numValue = parseFloat(factor); state.settings.bhGravityFactor = Math.max(config.minBHGravityFactor, Math.min(config.maxBHGravityFactor, isNaN(numValue) ? config.defaultBHGravityFactor : numValue)); recalculateBHGravitationalConstant(state.settings); }
-}
+    const state = getState(); if (state && state.settings) { const numValue = parseFloat(factor); state.settings.bhGravityFactor = Math.max(config.minBHGravityFactor, Math.min(config.maxBHGravityFactor, isNaN(numValue) ? config.defaultBHGravityFactor : numValue)); recalculateBHGravitationalConstant(state.settings); }\n}
 function recalculateBHGravitationalConstant(settings) { 
-    if (!settings || typeof settings.G !== 'number' || typeof settings.referencePlanetMassForBHFactor !== 'number' || typeof settings.planetGravityMultiplier !== 'number' || typeof settings.bhGravityFactor !== 'number') { return; }
-    settings.blackHoleGravitationalConstant = settings.G * settings.referencePlanetMassForBHFactor * settings.planetGravityMultiplier * settings.bhGravityFactor;
-}
+    if (!settings || typeof settings.G !== 'number' || typeof settings.referencePlanetMassForBHFactor !== 'number' || typeof settings.planetGravityMultiplier !== 'number' || typeof settings.bhGravityFactor !== 'number') { return; }\n    settings.blackHoleGravitationalConstant = settings.G * settings.referencePlanetMassForBHFactor * settings.planetGravityMultiplier * settings.bhGravityFactor;\n}
 export function setBlackHoleEventHorizonRadius(value) {
-    // This function is now deprecated. The server dictates the event horizon radius.
-}
+    // This function is now deprecated. The server dictates the event horizon radius.\n}
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=setupSettingsModifiers##
 
 
-// --- Core Game State Changes ---
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=coreStateChangeModifiers##
+// --- Core Game State Changes ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=coreStateChangeModifiers##
 export function addCrater(planet, x, y, craterRadius_pixels, massEjected_kg, impactKE, impactSpeed_mps = null) {
     if (!planet || planet.massKg === undefined || !isFinite(planet.massKg)) {
         console.error("addCrater (client): Invalid planet object provided.", planet);
@@ -256,8 +212,7 @@ export function filterDebris() {
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=coreStateChangeModifiers##
 
 
-// --- Destruction Sequence Trigger (Client-side visual prediction / initiation) ---
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=destructionTrigger##
+// --- Destruction Sequence Trigger (Client-side visual prediction / initiation) ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=destructionTrigger##
 export function triggerDestructionSequence(planet, impactX, impactY) {
     if (!planet || planet.isBreakingUp || planet.isDestroying || planet.isBlackHole || planet.isDestroyed) {
         return false; 
@@ -269,8 +224,7 @@ export function triggerDestructionSequence(planet, impactX, impactY) {
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=destructionTrigger##
 
 
-// --- State Phase Setters (Client-side visual/predictive state changes) ---
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=statePhaseSetters##
+// --- State Phase Setters (Client-side visual/predictive state changes) ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=statePhaseSetters##
 export function advanceBreakupFrame(planet) { if (planet && planet.isBreakingUp) planet.breakupFrame++; } 
 export function advanceExplosionFrame(planet) { if (planet && planet.isDestroying) planet.explosionFrame++; } 
 export function advanceDestructionElapsedTime(planet) { 
@@ -294,7 +248,7 @@ export function applyServerPlanetState(planetId, serverPlanetData) {
         const clientPlanet = state.planets[planetIndex];
         Object.assign(clientPlanet, serverPlanetData);
     } else {
-        console.warn(`[CLIENT S_MOD] applyServerPlanetState: Planet ID ${planetId} not found on client. Adding it.`);
+        console.warn(`[CLIENT S_MOD] applyServerPlanetState: Planet with ID ${planetId} not found on client. Adding it.`);
         state.planets.push(serverPlanetData); 
     }
 }
@@ -305,17 +259,29 @@ export function setShockwaveReversalRadius(planet, radius) { if (planet) { plane
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=statePhaseSetters##
 
 
-// --- Camera Coordinate Conversion & Offset ---
-// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=coordinateConversion##
+// --- Camera Coordinate Conversion & Offset ---\n// ##AI_AUTOMATION::TARGET_ID_DEFINE_START=coordinateConversion##
 export function screenToWorld(screenCoords, state) {
     if (!screenCoords || !state?.settings || !state.canvasWidth) return { x: 0, y: 0 };
     const settings = state.settings;
     const viewCenterX = settings.cameraOffsetX; const viewCenterY = settings.cameraOffsetY;
     const safeZoom = Math.max(0.01, settings.cameraZoom);
-    const worldX = viewCenterX + (screenCoords.x - state.canvasWidth / 2) / safeZoom;
-    const worldY = viewCenterY + (screenCoords.y - state.canvasHeight / 2) / safeZoom;
+    // This logic must match the renderer's new adaptive scaling
+    const BASE_VIEWPORT_HEIGHT = 806;
+    const cameraViewHeight = BASE_VIEWPORT_HEIGHT / safeZoom;
+    const cameraViewWidth = (BASE_VIEWPORT_HEIGHT * (settings.worldWidth / settings.worldHeight)) / safeZoom;
+
+    let scale;
+    if (state.canvasWidth / state.canvasHeight > cameraViewWidth / cameraViewHeight) {
+        scale = state.canvasHeight / cameraViewHeight;
+    } else {
+        scale = state.canvasWidth / cameraViewWidth;
+    }
+
+    const worldX = viewCenterX + (screenCoords.x - state.canvasWidth / 2) / scale;
+    const worldY = viewCenterY + (screenCoords.y - state.canvasHeight / 2) / scale;
     return { x: worldX, y: worldY };
 }
+
 export function worldToScreen(worldCoords, state) {
     if (!worldCoords || !state?.settings || !state.canvasWidth) return { x: 0, y: 0 };
     
@@ -323,7 +289,14 @@ export function worldToScreen(worldCoords, state) {
     const BASE_VIEWPORT_HEIGHT = 806;
     const safeZoom = Math.max(0.01, state.settings.cameraZoom);
     const cameraViewHeight = BASE_VIEWPORT_HEIGHT / safeZoom;
-    const scale = state.canvasHeight / cameraViewHeight;
+    const cameraViewWidth = (BASE_VIEWPORT_HEIGHT * (state.settings.worldWidth / state.settings.worldHeight)) / safeZoom;
+    
+    let scale;
+    if (state.canvasWidth / state.canvasHeight > cameraViewWidth / cameraViewHeight) {
+        scale = state.canvasHeight / cameraViewHeight;
+    } else {
+        scale = state.canvasWidth / cameraViewWidth;
+    }
 
     const screenX = state.canvasWidth / 2 + (worldCoords.x - state.settings.cameraOffsetX) * scale;
     const screenY = state.canvasHeight / 2 + (worldCoords.y - state.settings.cameraOffsetY) * scale;

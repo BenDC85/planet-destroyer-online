@@ -86,7 +86,6 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
         planetCount: initialSettings.planetCount ?? config.DEFAULT_PLANET_COUNT, 
         destructionChunkCount: initialSettings.destructionChunkCount ?? config.DEFAULT_DESTRUCTION_CHUNK_COUNT,
         destructionParticleCount: initialSettings.destructionParticleCount ?? config.DEFAULT_DESTRUCTION_PARTICLE_COUNT,
-        baseDamageRadius: initialSettings.baseDamageRadius ?? config.defaultBaseDamageRadius,
         persistentChunkDrift: initialSettings.persistentChunkDrift ?? config.defaultPersistentChunkDrift,
         projectileSpeed: (initialSettings.projectileSpeed ?? config.defaultProjectileSpeed) * config.PROJECTILE_SPEED_HUD_SCALE_FACTOR,
         projectileMass: initialSettings.projectileMass ?? config.defaultProjectileMass,
@@ -137,7 +136,7 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
         particles: [], chunks: [], bhParticles: [], projectiles: [],
         ship: localPlayerShip, 
         remotePlayers: {}, // Keyed by userId now
-        clickState: 'idle', firstClickCoords: null, currentMousePos: null, worldMousePos: null,
+        currentMousePos: null, worldMousePos: null,
         canvasWidth: canvasWidth, canvasHeight: canvasHeight,
     };
 

@@ -4,7 +4,6 @@
 import * as config from '../config.js';
 import { getState, initializeState } from '../state/gameState.js';
 import * as stateModifiers from '../state/stateModifiers.js';
-import * as interaction from './interaction.js';
 import * as utils from '../utils.js';
 import * as stateUtils from '../state/stateUtils.js'; 
 import { socket } from '../network.js'; 
@@ -26,7 +25,6 @@ let persistentDriftCheckbox;
 
 
 // Number Input & Value Span References
-let damageRadiusInput, damageRadiusValue;
 let projectileSpeedInput, projectileSpeedValue;
 let projectileMassInput, projectileMassValue;
 let cameraZoomInput, cameraZoomValue, zoomOutButton, zoomInButton;
@@ -94,7 +92,6 @@ export function setupInputListeners(canvasElement) {
     zoomInButton = document.getElementById('zoomInButton');
 
 
-    damageRadiusInput = document.getElementById('hud_damageRadiusInput'); damageRadiusValue = document.getElementById('hud_damageRadiusValue');
     projectileSpeedInput = document.getElementById('hud_projectileSpeedInput'); projectileSpeedValue = document.getElementById('hud_projectileSpeedValue');
     projectileMassInput = document.getElementById('hud_projectileMassInput'); projectileMassValue = document.getElementById('hud_projectileMassValue');
     cameraZoomInput = document.getElementById('hud_cameraZoomInput'); cameraZoomValue = document.getElementById('hud_cameraZoomValue');
@@ -131,7 +128,6 @@ export function setupInputListeners(canvasElement) {
     bhEventHorizonInput = document.getElementById('hud_bhEventHorizonInput'); bhEventHorizonValue = document.getElementById('hud_bhEventHorizonValue');
 
 
-    canvas.addEventListener('click', handleCanvasClick);
     canvas.addEventListener('mousemove', handleCanvasMouseMove);
     // Note: The resize handler is now managed in main.js
     // window.addEventListener('resize', handleResize); 
@@ -186,7 +182,6 @@ export function setupInputListeners(canvasElement) {
     };
 
 
-    setupInput(damageRadiusInput, damageRadiusValue, initialSettings.baseDamageRadius, stateModifiers.setDamageRadius, 0);
     setupInput(projectileSpeedInput, projectileSpeedValue, initialSettings.projectileSpeed, stateModifiers.setProjectileLaunchSpeed, 0, true, config.PROJECTILE_SPEED_HUD_SCALE_FACTOR);
     setupInput(projectileMassInput, projectileMassValue, initialSettings.projectileMass, stateModifiers.setProjectileMass, 0, false, 1, true);
     setupInput(cameraZoomInput, cameraZoomValue, initialSettings.cameraZoom, (val) => updateZoom(val), 1, false, 1, false, updateScrollbars);
@@ -239,11 +234,11 @@ export function setupInputListeners(canvasElement) {
         const shouldBeOpen = index === 0; 
         title.addEventListener('click', handleCollapseToggle);
         if (shouldBeOpen) {
-            title.textContent = title.textContent.replace(/\\[[+-]\\]/g, '[-]');
+            title.textContent = title.textContent.replace(/\[[+-]\]/g, '[-]');
             contentDiv.style.maxHeight = contentDiv.scrollHeight + "px";
             contentDiv.classList.remove('collapsed');
         } else {
-            title.textContent = title.textContent.replace(/\\[[+-]\\]/g, '[+]');
+            title.textContent = title.textContent.replace(/\[[+-]\]/g, '[+]');
             contentDiv.style.maxHeight = '0px';
             contentDiv.classList.add('collapsed');
         }
@@ -257,21 +252,6 @@ export function setupInputListeners(canvasElement) {
 
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=eventHandlers##
-function handleCanvasClick(event) {
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const screenCoords = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    const state = getState();
-    if (!state) return; 
-    const worldCoords = stateModifiers.screenToWorld(screenCoords, state);
-
-
-    if (state.clickState === 'idle') {
-        stateModifiers.setClickState('waitingForSecondClick', screenCoords);
-    } else if (state.clickState === 'waitingForSecondClick') {
-        interaction.processClick(worldCoords, state); 
-    }
-}
 function handleCanvasMouseMove(event) {
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -279,8 +259,7 @@ function handleCanvasMouseMove(event) {
     stateModifiers.setCurrentMousePos(screenCoords);
 }
 // This is now handled in main.js
-// function handleResize() { ... }
-function handleKeyDown(event) {
+// function handleResize() { ... }\nfunction handleKeyDown(event) {
     if (event.target.tagName === 'INPUT' && event.target.type !== 'checkbox') return; 
     
     if (keyState.hasOwnProperty(event.code)) {
@@ -385,8 +364,7 @@ function handleGenericNumberInput(modifierFunction, valueElement, hudPrecision, 
         const id = event.target.id; 
 
 
-        if (id.includes('damageRadius')) actualInternalValue = currentState?.settings?.baseDamageRadius;
-        else if (id.includes('projectileSpeed')) actualInternalValue = currentState?.settings?.projectileSpeed;
+        if (id.includes('projectileSpeed')) actualInternalValue = currentState?.settings?.projectileSpeed;
         else if (id.includes('projectileMass')) actualInternalValue = currentState?.settings?.projectileMass;
         else if (id.includes('cameraZoom')) actualInternalValue = currentState?.settings?.cameraZoom;
         else if (id.includes('shipZoomAttract')) actualInternalValue = currentState?.settings?.shipZoomAttractFactor;
@@ -466,7 +444,7 @@ function handleLogSettings() {
         console.log(`  Zoom Attract: Ship=${settings.shipZoomAttractFactor.toFixed(2)}, Planet=${settings.planetZoomAttractFactor.toFixed(2)}`);
         console.log(`  Physics: G=${settings.G.toExponential(3)}, Pixels/Meter=${settings.pixelsPerMeter}, FPS=${settings.gameFps}`);
         console.log(`  Planet Gravity Multiplier (Internal): ${settings.planetGravityMultiplier.toExponential(3)} (HUD: ${(settings.planetGravityMultiplier / config.PLANET_GRAVITY_HUD_SCALE_FACTOR).toFixed(1)})`);
-        console.log(`  Planet Count: ${settings.planetCount}, Click Damage Radius: ${settings.baseDamageRadius}, Persistent Drift: ${settings.persistentChunkDrift}`);
+        console.log(`  Planet Count: ${settings.planetCount}, Persistent Drift: ${settings.persistentChunkDrift}`);
         console.log(`  Projectile: Speed (Internal):${settings.projectileSpeed.toFixed(2)} (HUD:${(settings.projectileSpeed / config.PROJECTILE_SPEED_HUD_SCALE_FACTOR).toFixed(0)}), Mass:${settings.projectileMass}kg`);
         console.log(`  Destruction: CraterScale(c)=${settings.craterScalingC.toExponential(2)}, KE-to-Eject(eta)=${settings.keToMassEjectEta.toExponential(2)}, BH Energy Mult=${settings.bhEnergyMultiplier.toFixed(2)}`);
         console.log(`  Chunks: Lifespan=${settings.chunkLifespanFrames}f, MaxSpeed=${settings.chunkMaxSpeedThreshold}px/f`);
@@ -476,9 +454,9 @@ function handleLogSettings() {
         console.log(`  BH Particles: LifeFactor=${settings.bhParticleLifeFactor.toFixed(1)}, SpeedFactor=${settings.bhParticleSpeedFactor.toFixed(1)}, SpawnRate=${settings.bhParticleSpawnRate}/f, MaxTotal=${settings.bhMaxParticles}`);
         console.log(`  BH Particle Spawn: MinRadiusFactor=${settings.bhSpawnRadiusMinFactor.toFixed(2)}, MaxRadiusFactor=${settings.bhSpawnRadiusMaxFactor.toFixed(2)}, MinSize=${settings.bhParticleMinSize.toFixed(1)}px, MaxSize=${settings.bhParticleMaxSize.toFixed(1)}px`);
         console.log(`  BH Particle Vel: InwardFactor=${settings.bhInitialInwardFactor.toFixed(2)}, AngularFactor=${settings.bhInitialAngularFactor.toFixed(2)}`);
-        console.log("---------------------------------------------");
+        console.log("---------------------------------------------\");
     } else {
-        console.log("Log Settings: Game state or settings not available.");
+        console.log("Log Settings: Game state or settings not available.\");
     }
 }
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=logSettingsHandler##
@@ -494,11 +472,11 @@ function handleCollapseToggle(event) {
     const isCollapsed = contentDiv.classList.contains('collapsed');
     if (isCollapsed) {
         contentDiv.classList.remove('collapsed');
-        title.textContent = title.textContent.replace(/\\[[+-]\\]/g, '[-]');
+        title.textContent = title.textContent.replace(/\[[+-]\]/g, '[-]');
         contentDiv.style.maxHeight = contentDiv.scrollHeight + "px"; 
     } else {
         contentDiv.classList.add('collapsed');
-        title.textContent = title.textContent.replace(/\\[[+-]\\]/g, '[+]');
+        title.textContent = title.textContent.replace(/\[[+-]\]/g, '[+]');
         contentDiv.style.maxHeight = '0px'; 
     }
 }

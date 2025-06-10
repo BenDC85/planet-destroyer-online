@@ -4,7 +4,7 @@ import { initializeGame, stopGameLoop } from './main.js';
 import { Projectile } from './entities/Projectile.js';
 import { Chunk } from './entities/Chunk.js';
 import { Particle } from './entities/Particle.js';
-import { addProjectile, applyServerPlanetState, addParticleToState, setClickState, setCurrentMousePos, setCameraOffset, setShipRotation, adjustShipAngle, fireShipProjectile, setDamageRadius, setCameraZoom } from './state/stateModifiers.js';
+import { addProjectile, applyServerPlanetState, addParticleToState, setCurrentMousePos, setCameraOffset, setShipRotation, adjustShipAngle, fireShipProjectile, setCameraZoom } from './state/stateModifiers.js';
 import * as config from './config.js';
 import { getState } from './state/gameState.js';
 
@@ -435,6 +435,15 @@ function setupSocketListeners() {
             targetShip.isDerelict = false; // Ensure it's not derelict on respawn
         }
     });
+
+    // --- BEGIN: Server Heartbeat Listener ---
+    // This listener exists solely to keep the connection alive.
+    // Receiving this event from the server prevents idle timeouts.
+    socket.on('server_heartbeat', () => {
+        // We don't need to do anything, but a log can be useful for debugging.
+        // console.log('Received server heartbeat.');
+    });
+    // --- END: Server Heartbeat Listener ---
 
     socket.on('disconnect', (reason) => {
         addMessageToLog(`Disconnected from server: ${reason}.`);
