@@ -17,7 +17,9 @@ let animationFrameId = null;
 
 // --- Resize Handling ---\nfunction handleResize() {
     const canvasContainer = document.getElementById('canvas-container');
-    if (!canvas || !canvasContainer) return;
+    if (!canvas || !canvasContainer) {
+        return;
+    }
 
     // Get the dimensions of the container div
     const newWidth = canvasContainer.clientWidth;
@@ -68,7 +70,7 @@ let animationFrameId = null;
 
     // 3. Initialize HUD
     if (!hudManager.initializeHUD()) {
-        console.warn("HUD Manager initialization failed.");
+        console.warn("HUD Manager initialization. Failed.");
     } else {
         console.log("   HUD Initialized.");
     }
