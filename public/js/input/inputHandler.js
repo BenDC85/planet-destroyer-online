@@ -254,8 +254,6 @@ function handleCanvasMouseMove(event) {
     stateModifiers.setCurrentMousePos(screenCoords);
 }
 
-// This is now handled in main.js
-// function handleResize() { ... }
 function handleKeyDown(event) {
     if (event.target.tagName === 'INPUT' && event.target.type !== 'checkbox') return; 
     
@@ -451,9 +449,9 @@ function handleLogSettings() {
         console.log(`  BH Particles: LifeFactor=${settings.bhParticleLifeFactor.toFixed(1)}, SpeedFactor=${settings.bhParticleSpeedFactor.toFixed(1)}, SpawnRate=${settings.bhParticleSpawnRate}/f, MaxTotal=${settings.bhMaxParticles}`);
         console.log(`  BH Particle Spawn: MinRadiusFactor=${settings.bhSpawnRadiusMinFactor.toFixed(2)}, MaxRadiusFactor=${settings.bhSpawnRadiusMaxFactor.toFixed(2)}, MinSize=${settings.bhParticleMinSize.toFixed(1)}px, MaxSize=${settings.bhParticleMaxSize.toFixed(1)}px`);
         console.log(`  BH Particle Vel: InwardFactor=${settings.bhInitialInwardFactor.toFixed(2)}, AngularFactor=${settings.bhInitialAngularFactor.toFixed(2)}`);
-        console.log("---------------------------------------------\");
+        console.log("---------------------------------------------");
     } else {
-        console.log("Log Settings: Game state or settings not available.\");
+        console.log("Log Settings: Game state or settings not available.");
     }
 }
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=logSettingsHandler##
