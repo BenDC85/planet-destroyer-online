@@ -129,8 +129,6 @@ export function setupInputListeners(canvasElement) {
 
 
     canvas.addEventListener('mousemove', handleCanvasMouseMove);
-    // Note: The resize handler is now managed in main.js
-    // window.addEventListener('resize', handleResize); 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
@@ -215,9 +213,6 @@ export function setupInputListeners(canvasElement) {
     setupInput(planetCountInput, planetCountValue, initialSettings.planetCount, stateModifiers.setSetupPlanetCount, 0);
     setupInput(bhGravityFactorInput, bhGravityFactorValue, initialSettings.bhGravityFactor, stateModifiers.setBHGravityFactor, 1);
     
-    // ** THE FIX IS HERE **
-    // The property name from the settings object was incorrect.
-    // Changed `initialSettings.blackHoleEventHorizonRadius` to `initialSettings.bhEventHorizonRadiusPx`
     setupInput(bhEventHorizonInput, bhEventHorizonValue, initialSettings.bhEventHorizonRadiusPx, stateModifiers.setBlackHoleEventHorizonRadius, 0);
 
 
@@ -258,8 +253,10 @@ function handleCanvasMouseMove(event) {
     const screenCoords = { x: event.clientX - rect.left, y: event.clientY - rect.top };
     stateModifiers.setCurrentMousePos(screenCoords);
 }
+
 // This is now handled in main.js
-// function handleResize() { ... }\nfunction handleKeyDown(event) {
+// function handleResize() { ... }
+function handleKeyDown(event) {
     if (event.target.tagName === 'INPUT' && event.target.type !== 'checkbox') return; 
     
     if (keyState.hasOwnProperty(event.code)) {
