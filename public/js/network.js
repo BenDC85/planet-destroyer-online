@@ -137,7 +137,8 @@ function setupSocketListeners() {
         addMessageToLog(`${newPlayerData.playerName} has joined.`);
     });
 
-    // --- REVISED EVENT HANDLERS FOR NEW SERVER LOGIC ---\n
+    // --- REVISED EVENT HANDLERS FOR NEW SERVER LOGIC ---
+
 
     socket.on('player_disconnected', (data) => {
         if (allPlayersData[data.userId]) {
@@ -163,7 +164,8 @@ function setupSocketListeners() {
         }
     });
 
-    // --- END REVISED EVENT HANDLERS ---\n
+    // --- END REVISED EVENT HANDLERS ---
+
 
     socket.on('player_moved', (data) => {
         // Now using userId
@@ -238,18 +240,18 @@ function setupSocketListeners() {
             projectile.isActive = false;
         }
 
-        const planet = clientState.planets.find(p => p.id === hitData.planetId);
-        if (planet && hitData.crater) {
-            if (!planet.craters) planet.craters = [];
-            const craterExists = planet.craters.some(c => 
-                Math.abs(c.x - hitData.crater.x) < 0.1 && 
-                Math.abs(c.y - hitData.crater.y) < 0.1
-            );
-            if (!craterExists) {
-                planet.craters.push(hitData.crater);
+        // --- THIS IS THE FIX ---
+        // The problem was that we were adding the crater here predictively.
+        // This caused the authoritative `planet_update` to think nothing changed.
+        // We will now ONLY rely on the `planet_update` event to modify the planet.
+        // We can, however, add an immediate particle effect for better user feedback.
+        if (hitData.impactPoint) {
+            const numParticles = 8 + Math.floor(Math.random() * 8);
+            for (let i = 0; i < numParticles; i++) {
+                addParticleToState(new Particle(hitData.impactPoint.x, hitData.impactPoint.y));
             }
-            // The textureNeedsUpdate flag is NO LONGER set here. It's handled by planet_update.
         }
+        // --- END OF FIX ---
     });
 
     socket.on('projectile_absorbed_by_bh', (data) => {
@@ -439,13 +441,15 @@ function setupSocketListeners() {
         }
     });
 
-    // --- BEGIN: Server Heartbeat Listener ---\n    // This listener exists solely to keep the connection alive.
+    // --- BEGIN: Server Heartbeat Listener ---
+    // This listener exists solely to keep the connection alive.
     // Receiving this event from the server prevents idle timeouts.
     socket.on('server_heartbeat', () => {
         // We don't need to do anything, but a log can be useful for debugging.
         // console.log('Received server heartbeat.');
     });
-    // --- END: Server Heartbeat Listener ---\n
+    // --- END: Server Heartbeat Listener ---
+
 
     socket.on('disconnect', (reason) => {
         addMessageToLog(`Disconnected from server: ${reason}.`);

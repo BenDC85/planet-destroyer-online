@@ -456,9 +456,22 @@ export function applyServerPlanetState(planetId, serverPlanetData) {
         clientPlanet.textureNeedsUpdate = textureNeedsUpdate;
         
     } else {
-        console.warn(`[CLIENT S_MOD] applyServerPlanetState: Planet with ID ${planetId} not found on client. Adding it.`);
-        // Note: Adding a planet here won't have the texture canvas. This should ideally only happen on init.
-        state.planets.push(serverPlanetData); 
+        // --- THIS IS THE FIX for the edge case ---
+        console.warn(`[CLIENT S_MOD] applyServerPlanetState: Planet ID ${planetId} not found. Creating it now.`);
+        
+        // Create a new client-side representation
+        const newClientPlanet = { ...serverPlanetData };
+
+        // CRITICAL: Create the texture canvas for it
+        newClientPlanet.textureCanvas = document.createElement('canvas');
+        newClientPlanet.textureCanvas.width = newClientPlanet.originalRadius * 2;
+        newClientPlanet.textureCanvas.height = newClientPlanet.originalRadius * 2;
+        
+        // CRITICAL: Flag it for its first bake
+        newClientPlanet.textureNeedsUpdate = true;
+        
+        state.planets.push(newClientPlanet); 
+        // --- END OF FIX ---
     }
 }
 
