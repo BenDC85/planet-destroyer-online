@@ -138,7 +138,8 @@ console.log("Supabase client initialized.");
 const publicDirectoryPath = path.join(__dirname, 'public');
 app.use(express.static(publicDirectoryPath));
 
-// --- BEGIN: State Variables ---\nlet playerData = {}; // Keyed by persistent userId
+// --- BEGIN: State Variables ---
+let playerData = {}; // Keyed by persistent userId
 const MAX_PLAYERS = 5;
 let serverPlanetsState = [];
 let nextServerPlanetId = 0;
@@ -146,7 +147,7 @@ let serverProjectiles = [];
 let nextProjectileId = 0;
 let serverChunks = [];
 let nextServerChunkId = 0;
-// --- END: State Variables ---\n
+// --- END: State Variables ---
 
 
 // =================================================================================
@@ -333,11 +334,13 @@ function generatePlanetsOnServer(numPlanetsOverride = null) {
 // END OF UTILITY FUNCTIONS
 // =================================================================================
 
-// --- BEGIN: Health Check Endpoint ---\n// This route is used by the hosting platform (Render) to verify the server is alive.
+// --- BEGIN: Health Check Endpoint ---
+// This route is used by the hosting platform (Render) to verify the server is alive.
 app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
-// --- END: Health Check Endpoint ---\n
+// --- END: Health Check Endpoint ---
+
 generatePlanetsOnServer();
 io.on('connection', (socket) => {
     console.log(`--- Client connected: ${socket.id} (Awaiting join request) ---`);
@@ -486,7 +489,8 @@ io.on('connection', (socket) => {
             }
         }
 
-        // --- SECURITY FIX: Generate projectile state on the server ---\n        // Do NOT trust client for position or angle. Use server's authoritative data.
+        // --- SECURITY FIX: Generate projectile state on the server ---
+        // Do NOT trust client for position or angle. Use server's authoritative data.
         const serverProjId = `srv_proj_${nextProjectileId++}`;
         const initialSpeed = projectileData.initialSpeedInternalPxFrame; // Client can still suggest speed
         const validatedMass = Math.max(SV_PROJECTILE_MIN_MASS_KG, Math.min(projectileData.massKg, SV_PROJECTILE_MAX_MASS_KG));
@@ -515,7 +519,8 @@ io.on('connection', (socket) => {
             framesAlive: 0,
             tempId: projectileData.tempId 
         };
-        // --- END OF SECURITY FIX ---\n
+        // --- END OF SECURITY FIX ---
+
         serverProjectiles.push(newServerProjectile);
         io.emit('new_projectile_created', newServerProjectile);
     });
@@ -530,12 +535,11 @@ io.on('connection', (socket) => {
 
         console.log(`[SERVER] Received 'request_world_reset' from ${requester.playerName}.`);
         let numPlanetsForReset = SV_DEFAULT_PLANET_COUNT;
-
-        // --- THE FIX: Add a null check to prevent server crash ---
+        
+        // This check is now safe, as it's inside the connection handler
         if (clientSuggestedSettings && typeof clientSuggestedSettings.planetCount === 'number' && clientSuggestedSettings.planetCount >= 1 && clientSuggestedSettings.planetCount <= 50) {
             numPlanetsForReset = clientSuggestedSettings.planetCount;
         }
-        // --- END OF FIX ---
         
         generatePlanetsOnServer(numPlanetsForReset);
         serverProjectiles = [];
@@ -587,7 +591,8 @@ io.on('connection', (socket) => {
                 nextProjectileId = 0;
                 serverChunks = [];
                 nextServerChunkId = 0;
-                // --- BUG FIX: Do NOT clear playerData. This preserves data for reconnects. ---\n                // playerData = {}; // <-- This line was removed.
+                // --- BUG FIX: Do NOT clear playerData. This preserves data for reconnects. ---
+                // playerData = {}; // <-- This line was removed.
             }
         } else {
             console.log(`--- Client disconnected: ${socket.id} (was not an active player or already removed) ---`);
@@ -1154,27 +1159,39 @@ function updateServerPlanetDestructionStates() {
     });
 }
 
-setInterval(updateServerPlanetDestructionStates, 1000 / SV_PROJECTILE_SIMULATION_FPS);
-setInterval(updateServerProjectiles, 1000 / SV_PROJECTILE_SIMULATION_FPS);
-setInterval(updateServerChunks, 1000 / SV_CHUNK_SIMULATION_FPS);
-
+// --- MAIN GAME LOOP (Combined) ---
+let lastUpdateTime = Date.now();
 setInterval(() => {
+    const now = Date.now();
+    const deltaTime = (now - lastUpdateTime) / 1000.0;
+    lastUpdateTime = now;
+
+    // Run all physics updates
+    updateServerPlanetDestructionStates();
+    updateServerProjectiles();
+    updateServerChunks();
+
+    // Send state updates to clients if players are connected
     const connectedPlayerCount = Object.values(playerData).filter(p => p.isConnected).length;
     if (connectedPlayerCount > 0) {
         const projectileUpdates = serverProjectiles.map(p => ({ id: p.id, x: p.x, y: p.y, vx: p.vx, vy: p.vy, isActive: p.isActive }));
-        io.emit('projectiles_update', projectileUpdates);
+        if (projectileUpdates.length > 0) io.emit('projectiles_update', projectileUpdates);
         
         const chunkUpdates = serverChunks.map(c => ({ id: c.id, x: c.x, y: c.y, vx: c.vx, vy: c.vy, angle: c.angle, isActive: c.isActive }));
-        io.emit('chunks_update', chunkUpdates);
+        if (chunkUpdates.length > 0) io.emit('chunks_update', chunkUpdates);
     }
-}, SV_PROJECTILE_UPDATE_INTERVAL_MS);
 
-// --- BEGIN: Server-to-Client Heartbeat ---\n// Sends a small message to all clients every 25 seconds to prevent
+}, 1000 / SV_PROJECTILE_SIMULATION_FPS);
+
+
+// --- BEGIN: Server-to-Client Heartbeat ---
+// Sends a small message to all clients every 25 seconds to prevent
 // idle connection timeouts on hosting platforms like Render.
 setInterval(() => {
     io.emit('server_heartbeat');
 }, 25000); // 25 seconds
-// --- END: Server-to-Client Heartbeat ---\n
+// --- END: Server-to-Client Heartbeat ---
+
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server for Planet Destroyer Online is running on http://0.0.0.0:${PORT}`);
     console.log("Socket.IO is attached and listening.");
