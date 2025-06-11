@@ -91,9 +91,6 @@ export function addParticleToState(particleInstance) {
 
 // --- In-Game Settings Modifiers ---
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=inGameSettingsModifiers##
-// ** THE FIX IS HERE **
-// This function is now greatly simplified. It only updates the zoom value.
-// The renderer is now solely responsible for calculating the resulting view.
 export function setCameraZoom(newZoomRaw) {
     const state = getState();
     if (!state || !state.settings) return;
@@ -190,6 +187,7 @@ export function addCrater(planet, x, y, craterRadius_pixels, massEjected_kg, imp
         actualCraterRadius = craterRadius_pixels;
     } else if (craterRadius_pixels === null) { 
         const settings = getState()?.settings;
+        // This setting is now removed, but we keep the logic structure in case a new tool is added
         if (settings && settings.baseDamageRadius > 0) {
             actualCraterRadius = settings.baseDamageRadius;
         }
@@ -284,50 +282,73 @@ export function setShockwaveReversalRadius(planet, radius) { if (planet) { plane
 
 // --- Camera Coordinate Conversion & Offset ---
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=coordinateConversion##
-export function screenToWorld(screenCoords, state) {
-    if (!screenCoords || !state?.settings || !state.canvasWidth) return { x: 0, y: 0 };
+
+/**
+ * Calculates the current rendering scale based on the exact same logic as the renderer.
+ * This is encapsulated to ensure conversions are always in sync with what's on screen.
+ * @param {object} state The global game state.
+ * @returns {number} The current rendering scale.
+ */
+function getRendererScale(state) {
     const settings = state.settings;
-    const viewCenterX = settings.cameraOffsetX; const viewCenterY = settings.cameraOffsetY;
-    
-    // This logic must match the renderer's new adaptive scaling
-    const BASE_VIEWPORT_HEIGHT = 806;
+
+    // --- SAFEGUARDS ---
+    if (!state || !settings || !state.canvasWidth || !state.canvasHeight || state.canvasHeight <= 0 ||
+        !settings.worldWidth || settings.worldWidth <= 0 || !settings.worldHeight || settings.worldHeight <= 0) {
+        return 1.0; // Return a default, safe scale
+    }
+    // --- END SAFEGUARDS ---
+
+    const BASE_VIEWPORT_HEIGHT = 806; // Must match renderer.js
     const safeZoom = Math.max(0.01, settings.cameraZoom);
+
+    // This logic MUST exactly mirror renderer.js
     const cameraViewHeight = BASE_VIEWPORT_HEIGHT / safeZoom;
     const cameraViewWidth = (BASE_VIEWPORT_HEIGHT * (settings.worldWidth / settings.worldHeight)) / safeZoom;
 
+    const canvasAspectRatio = state.canvasWidth / state.canvasHeight;
+    const cameraAspectRatio = cameraViewWidth / cameraViewHeight;
+
     let scale;
-    if (state.canvasWidth / state.canvasHeight > cameraViewWidth / cameraViewHeight) {
+    if (canvasAspectRatio > cameraAspectRatio) {
         scale = state.canvasHeight / cameraViewHeight;
     } else {
         scale = state.canvasWidth / cameraViewWidth;
     }
+    
+    if (!scale || !isFinite(scale) || scale <= 0) {
+        return 1.0;
+    }
+    return scale;
+}
 
-    const worldX = viewCenterX + (screenCoords.x - state.canvasWidth / 2) / scale;
-    const worldY = viewCenterY + (screenCoords.y - state.canvasHeight / 2) / scale;
+
+export function screenToWorld(screenCoords, state) {
+    if (!screenCoords || !state?.settings || !state.canvasWidth) {
+        return { x: 0, y: 0 };
+    }
+    const settings = state.settings;
+    const scale = getRendererScale(state);
+
+    const worldX = settings.cameraOffsetX + (screenCoords.x - state.canvasWidth / 2) / scale;
+    const worldY = settings.cameraOffsetY + (screenCoords.y - state.canvasHeight / 2) / scale;
+    
     return { x: worldX, y: worldY };
 }
 
 export function worldToScreen(worldCoords, state) {
-    if (!worldCoords || !state?.settings || !state.canvasWidth) return { x: 0, y: 0 };
-    
-    // This calculation needs to match the renderer's logic exactly.
-    const BASE_VIEWPORT_HEIGHT = 806;
-    const safeZoom = Math.max(0.01, state.settings.cameraZoom);
-    const cameraViewHeight = BASE_VIEWPORT_HEIGHT / safeZoom;
-    const cameraViewWidth = (BASE_VIEWPORT_HEIGHT * (state.settings.worldWidth / state.settings.worldHeight)) / safeZoom;
-    
-    let scale;
-    if (state.canvasWidth / state.canvasHeight > cameraViewWidth / cameraViewHeight) {
-        scale = state.canvasHeight / cameraViewHeight;
-    } else {
-        scale = state.canvasWidth / cameraViewWidth;
+    if (!worldCoords || !state?.settings || !state.canvasWidth) {
+        return { x: 0, y: 0 };
     }
-
-    const screenX = state.canvasWidth / 2 + (worldCoords.x - state.settings.cameraOffsetX) * scale;
-    const screenY = state.canvasHeight / 2 + (worldCoords.y - state.settings.cameraOffsetY) * scale;
+    const settings = state.settings;
+    const scale = getRendererScale(state);
+    
+    const screenX = state.canvasWidth / 2 + (worldCoords.x - settings.cameraOffsetX) * scale;
+    const screenY = state.canvasHeight / 2 + (worldCoords.y - settings.cameraOffsetY) * scale;
 
     return { x: screenX, y: screenY };
 }
+
 export function setCameraOffset(newOffsetX, newOffsetY) {
     const state = getState();
     if (state && state.settings) {

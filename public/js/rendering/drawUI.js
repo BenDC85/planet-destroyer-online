@@ -1,13 +1,9 @@
-// js/rendering/drawUI.js
-
-// This file's contents have been intentionally removed to eliminate the
-// targeting line and damage radius circle, which were part of a deprecated
-// click-damage feature. This change resolves the "glint" bug.
-
-// The function is kept as a placeholder for any future UI rendering needs.
+/* File: public/js/rendering/drawUI.js */
 
 /**
  * Draws UI elements directly on the canvas (in screen space).
+ * This function is intentionally left empty to remove the deprecated
+ * click-damage targeting line and radius indicator, which fixes the "glint" bug.
  * @param {CanvasRenderingContext2D} ctx - The rendering context.
  * @param {object} state - The current game state.
  */
