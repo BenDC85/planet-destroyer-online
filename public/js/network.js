@@ -417,7 +417,7 @@ function setupSocketListeners() {
         }
     });
 
-    socket.on'player_respawned', (playerDataFromServer) => {
+    socket.on('player_respawned', (playerDataFromServer) => {
         addMessageToLog(`${playerDataFromServer.playerName} has respawned!`);
         allPlayersData[playerDataFromServer.userId] = playerDataFromServer;
         const clientState = getState();
