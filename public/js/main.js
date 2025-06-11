@@ -8,14 +8,16 @@ import * as renderer from './rendering/renderer.js';
 import * as hudManager from './hud/hudManager.js';
 
 
-// --- Global Scope Variables ---\nlet canvas = null;
+// --- Global Scope Variables ---
+let canvas = null;
 let ctx = null;
 let lastTimestamp = 0;
 let isGameLoopRunning = false;
 let animationFrameId = null;
 
 
-// --- Resize Handling ---\nfunction handleResize() {
+// --- Resize Handling ---
+function handleResize() {
     const canvasContainer = document.getElementById('canvas-container');
     if (!canvas || !canvasContainer) {
         return;
@@ -36,7 +38,8 @@ let animationFrameId = null;
 }
 
 
-// --- Initialization Function (Called by network.js after successful join) ---\nexport function initializeGame(initialWorldData = {}, authoritativeLocalPlayerData = null) {
+// --- Initialization Function (Called by network.js after successful join) ---
+export function initializeGame(initialWorldData = {}, authoritativeLocalPlayerData = null) {
 
     if (isGameLoopRunning) {
         console.warn("initializeGame called while game loop already running. Resetting...");
@@ -56,7 +59,8 @@ let animationFrameId = null;
     window.addEventListener('resize', handleResize);
 
 
-    // --- Initialize Modules (Order Matters!) ---\n    // 1. Initialize State: Pass authoritative data from server.
+    // --- Initialize Modules (Order Matters!) ---
+    // 1. Initialize State: Pass authoritative data from server.
     initializeState(canvas.width, canvas.height, {}, initialWorldData, authoritativeLocalPlayerData);
     console.log("   Client Game State Initialized.");
 
@@ -70,7 +74,7 @@ let animationFrameId = null;
 
     // 3. Initialize HUD
     if (!hudManager.initializeHUD()) {
-        console.warn("HUD Manager initialization. Failed.");
+        console.warn("HUD Manager initialization failed.");
     } else {
         console.log("   HUD Initialized.");
     }
@@ -90,7 +94,8 @@ let animationFrameId = null;
 }
 
 
-// --- Main Game Loop ---\nfunction gameLoop(timestamp) {
+// --- Main Game Loop ---
+function gameLoop(timestamp) {
     if (!isGameLoopRunning || !ctx) {
         if (isGameLoopRunning && animationFrameId) cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
@@ -133,7 +138,8 @@ let animationFrameId = null;
 }
 
 
-// --- Stop Game Function ---\nexport function stopGameLoop() {
+// --- Stop Game Function ---
+export function stopGameLoop() {
     if (isGameLoopRunning) {
         console.log("--- Main.js: Stopping Game Loop ---");
         isGameLoopRunning = false;
