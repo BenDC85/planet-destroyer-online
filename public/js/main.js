@@ -8,16 +8,14 @@ import * as renderer from './rendering/renderer.js';
 import * as hudManager from './hud/hudManager.js';
 
 
-// --- Global Scope Variables ---
-let canvas = null;
+// --- Global Scope Variables ---\nlet canvas = null;
 let ctx = null;
 let lastTimestamp = 0;
 let isGameLoopRunning = false;
 let animationFrameId = null;
 
 
-// --- Resize Handling ---
-function handleResize() {
+// --- Resize Handling ---\nfunction handleResize() {
     const canvasContainer = document.getElementById('canvas-container');
     if (!canvas || !canvasContainer) return;
 
@@ -36,8 +34,7 @@ function handleResize() {
 }
 
 
-// --- Initialization Function (Called by network.js after successful join) ---
-export function initializeGame(initialWorldData = {}, authoritativeLocalPlayerData = null) {
+// --- Initialization Function (Called by network.js after successful join) ---\nexport function initializeGame(initialWorldData = {}, authoritativeLocalPlayerData = null) {
 
     if (isGameLoopRunning) {
         console.warn("initializeGame called while game loop already running. Resetting...");
@@ -57,8 +54,7 @@ export function initializeGame(initialWorldData = {}, authoritativeLocalPlayerDa
     window.addEventListener('resize', handleResize);
 
 
-    // --- Initialize Modules (Order Matters!) ---
-    // 1. Initialize State: Pass authoritative data from server.
+    // --- Initialize Modules (Order Matters!) ---\n    // 1. Initialize State: Pass authoritative data from server.
     initializeState(canvas.width, canvas.height, {}, initialWorldData, authoritativeLocalPlayerData);
     console.log("   Client Game State Initialized.");
 
@@ -92,8 +88,7 @@ export function initializeGame(initialWorldData = {}, authoritativeLocalPlayerDa
 }
 
 
-// --- Main Game Loop ---
-function gameLoop(timestamp) {
+// --- Main Game Loop ---\nfunction gameLoop(timestamp) {
     if (!isGameLoopRunning || !ctx) {
         if (isGameLoopRunning && animationFrameId) cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
@@ -103,7 +98,18 @@ function gameLoop(timestamp) {
 
     const deltaTime = (timestamp - lastTimestamp) / 1000;
     lastTimestamp = timestamp;
-    const dtClamped = Math.min(deltaTime, 1 / 30); 
+    
+    // --- THE FIX: Handle browser tab pausing ---
+    // If deltaTime is huge (e.g., >250ms), the tab was likely inactive.
+    // Skip this frame's physics update to prevent entities from "teleporting".
+    // Just render the last known state and continue.
+    const MAX_DELTA_TIME_SECONDS = 0.25; 
+    if (deltaTime > MAX_DELTA_TIME_SECONDS) {
+        console.warn(`Large delta detected (${deltaTime.toFixed(3)}s), skipping physics update for one frame to prevent jump.`);
+        animationFrameId = requestAnimationFrame(gameLoop);
+        return;
+    }
+    // --- END OF FIX ---
 
 
     const state = getState();
@@ -116,7 +122,7 @@ function gameLoop(timestamp) {
 
     updateRemotePlayerShips(); 
     inputHandler.processHeldKeys(); 
-    physicsUpdater.updatePhysics(dtClamped); 
+    physicsUpdater.updatePhysics(deltaTime); 
     renderer.renderGame(); 
     hudManager.updateHUD(state);
 
@@ -125,8 +131,7 @@ function gameLoop(timestamp) {
 }
 
 
-// --- Stop Game Function ---
-export function stopGameLoop() {
+// --- Stop Game Function ---\nexport function stopGameLoop() {
     if (isGameLoopRunning) {
         console.log("--- Main.js: Stopping Game Loop ---");
         isGameLoopRunning = false;

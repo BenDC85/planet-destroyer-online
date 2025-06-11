@@ -248,7 +248,7 @@ function setupSocketListeners() {
             if (!craterExists) {
                 planet.craters.push(hitData.crater);
             }
-            planet.textureNeedsUpdate = true; // Tell the renderer to re-bake the texture
+            // The textureNeedsUpdate flag is NO LONGER set here. It's handled by planet_update.
         }
     });
 
@@ -397,7 +397,7 @@ function setupSocketListeners() {
                 const craterExists = planet.craters.some(c => Math.abs(c.x - data.newCrater.x) < 0.1);
                 if (!craterExists) planet.craters.push(data.newCrater);
 
-                planet.textureNeedsUpdate = true; // Tell the renderer to re-bake the texture
+                // The textureNeedsUpdate flag is NO LONGER set here. It's handled by planet_update.
 
                 if (data.impactPoint) {
                     const numParticles = 5 + Math.floor(Math.random() * 5);
@@ -417,7 +417,7 @@ function setupSocketListeners() {
         }
     });
 
-    socket.on('player_respawned', (playerDataFromServer) => {
+    socket.on'player_respawned', (playerDataFromServer) => {
         addMessageToLog(`${playerDataFromServer.playerName} has respawned!`);
         allPlayersData[playerDataFromServer.userId] = playerDataFromServer;
         const clientState = getState();
