@@ -63,7 +63,8 @@ export function renderGame() {
     
     ctx.save();
 
-    // --- NEW: Adaptive Aspect Ratio Logic ---\n    const safeZoom = Math.max(0.01, settings.cameraZoom);
+    // --- NEW: Adaptive Aspect Ratio Logic ---
+    const safeZoom = Math.max(0.01, settings.cameraZoom);
 
     // 1. Define the camera's desired viewport dimensions in world units.
     const cameraViewHeight = BASE_VIEWPORT_HEIGHT / safeZoom;
@@ -87,7 +88,8 @@ export function renderGame() {
     ctx.translate(canvasWidth / 2, canvasHeight / 2);
     ctx.scale(scale, scale);
     ctx.translate(-settings.cameraOffsetX, -settings.cameraOffsetY);
-    // --- End of New Rendering Logic ---\n
+    // --- End of New Rendering Logic ---
+
 
     // --- NEW: PRE-RENDERING (TEXTURE BAKING) LOOP ---
     // Before drawing anything, check if any planet textures need to be updated.
@@ -114,6 +116,7 @@ export function renderGame() {
         }
     });
     // --- END OF NEW PRE-RENDERING LOOP ---
+
 
     // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=drawBackgroundElements##
     if (typeof settings.worldMinX !== 'undefined') {
