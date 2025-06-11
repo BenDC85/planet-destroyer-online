@@ -137,7 +137,7 @@ function setupSocketListeners() {
         addMessageToLog(`${newPlayerData.playerName} has joined.`);
     });
 
-    // --- REVISED EVENT HANDLERS FOR NEW SERVER LOGIC ---
+    // --- REVISED EVENT HANDLERS FOR NEW SERVER LOGIC ---\n
 
     socket.on('player_disconnected', (data) => {
         if (allPlayersData[data.userId]) {
@@ -163,7 +163,7 @@ function setupSocketListeners() {
         }
     });
 
-    // --- END REVISED EVENT HANDLERS ---
+    // --- END REVISED EVENT HANDLERS ---\n
 
     socket.on('player_moved', (data) => {
         // Now using userId
@@ -248,6 +248,7 @@ function setupSocketListeners() {
             if (!craterExists) {
                 planet.craters.push(hitData.crater);
             }
+            planet.textureNeedsUpdate = true; // Tell the renderer to re-bake the texture
         }
     });
 
@@ -396,6 +397,8 @@ function setupSocketListeners() {
                 const craterExists = planet.craters.some(c => Math.abs(c.x - data.newCrater.x) < 0.1);
                 if (!craterExists) planet.craters.push(data.newCrater);
 
+                planet.textureNeedsUpdate = true; // Tell the renderer to re-bake the texture
+
                 if (data.impactPoint) {
                     const numParticles = 5 + Math.floor(Math.random() * 5);
                     for (let i = 0; i < numParticles; i++) {
@@ -436,14 +439,13 @@ function setupSocketListeners() {
         }
     });
 
-    // --- BEGIN: Server Heartbeat Listener ---
-    // This listener exists solely to keep the connection alive.
+    // --- BEGIN: Server Heartbeat Listener ---\n    // This listener exists solely to keep the connection alive.
     // Receiving this event from the server prevents idle timeouts.
     socket.on('server_heartbeat', () => {
         // We don't need to do anything, but a log can be useful for debugging.
         // console.log('Received server heartbeat.');
     });
-    // --- END: Server Heartbeat Listener ---
+    // --- END: Server Heartbeat Listener ---\n
 
     socket.on('disconnect', (reason) => {
         addMessageToLog(`Disconnected from server: ${reason}.`);

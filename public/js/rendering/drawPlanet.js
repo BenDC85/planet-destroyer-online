@@ -80,36 +80,10 @@ function drawJaggedPath(ctx, points, closePath = false, fill = false, stroke = t
 
 export function renderPlanetState(ctx, planet) {
 
-    // Don't render if planet is fully destroyed (unless it's a BH) or has no radius
-    if (!planet || (!planet.isBlackHole && (!planet.originalRadius || planet.originalRadius <= 0) && planet.isDestroyed )) {
-        return;
-    }
-    // If it's a non-BH and radius is 0 but not yet marked 'isDestroyed' (e.g. mid-destruction sequence),
-    // it might still have effects, but the base planet won't draw.
-    if (!planet.isBlackHole && planet.originalRadius <=0 && !planet.isDestroying && !planet.isBreakingUp) {
-        return;
-    }
-
-
-
-
-
-    if (planet.isBlackHole) {
-        // BH radius is the event horizon radius, set by the server
-        ctx.beginPath(); 
-        ctx.arc(planet.x, planet.y, planet.radius, 0, Math.PI * 2); 
-        ctx.fillStyle = 'black'; 
-        ctx.fill();
-    } else if (planet.isBreakingUp) {
-        // Draw the planet normally, then shatter cracks over it
-        drawStaticCrateredPlanetInternal(ctx, planet);
-        const breakupProgress = Math.min(1, planet.breakupFrame / config.BREAKUP_DURATION_FRAMES);
-        drawShatterCracksInternal(ctx, planet, breakupProgress);
-    } else if (!planet.isDestroying && (planet.massKg ?? 0) > 0) { // Standard planet, not in core destruction effect phase
-        drawStaticCrateredPlanetInternal(ctx, planet);
-    }
-    // If planet.isDestroying, the core (glow/implosion) effects are drawn by drawEffects.js.
-    // The shockwaves are also drawn by drawEffects.js and can persist slightly after main destruction.
+    // This function is now DEPRECATED and its logic is moved to the main renderer.
+    // It is no longer called directly. You can safely remove its contents or the entire function.
+    // For clarity, let's empty it.
+    return;
 }
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=renderPlanetStateFunction##
@@ -122,7 +96,7 @@ export function renderPlanetState(ctx, planet) {
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=drawStaticCrateredPlanetInternal##
 
-function drawStaticCrateredPlanetInternal(ctx, planet) {
+export function drawStaticCrateredPlanetInternal(ctx, planet) {
      if (!planet || !planet.originalRadius || planet.originalRadius <= 0 || !planet.type || !config.PLANET_TYPES[planet.type]) { return; }
 
 
@@ -150,10 +124,8 @@ function drawStaticCrateredPlanetInternal(ctx, planet) {
     ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fillStyle = planetColor; ctx.fill();
 
 
-    // --- Clip subsequent details to the planet's boundary ---\
-    ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.clip();
-    // ---------------------------------------------------------
-    ctx.lineCap = 'round';
+    // --- Clip subsequent details to the planet's boundary ---\\\n    ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.clip();
+    // ---------------------------------------------------------\n    ctx.lineCap = 'round';
 
 
     switch (planet.type) {
@@ -439,7 +411,7 @@ function drawStaticCrateredPlanetInternal(ctx, planet) {
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=drawShatterCracksInternal##
 
-function drawShatterCracksInternal(ctx, planet, progress) {
+export function drawShatterCracksInternal(ctx, planet, progress) {
      if (!planet || !planet.lastImpactPoint || !planet.originalRadius || planet.originalRadius <= 0 || progress <= 0) return;
      
      const cracksViz = config.EFFECT_PARAMETERS.SHATTER_CRACKS;

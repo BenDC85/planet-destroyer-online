@@ -7,6 +7,7 @@ import * as drawEffects from './drawEffects.js';
 import * as drawUI from './drawUI.js';
 import { renderShip } from './drawShip.js'; 
 import { getMyPlayerId } from '../network.js';
+import * as config from '../config.js'; // Import config for BREAKUP_DURATION_FRAMES
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=rendererFileContent##
 
@@ -62,8 +63,7 @@ export function renderGame() {
     
     ctx.save();
 
-    // --- NEW: Adaptive Aspect Ratio Logic ---
-    const safeZoom = Math.max(0.01, settings.cameraZoom);
+    // --- NEW: Adaptive Aspect Ratio Logic ---\n    const safeZoom = Math.max(0.01, settings.cameraZoom);
 
     // 1. Define the camera's desired viewport dimensions in world units.
     const cameraViewHeight = BASE_VIEWPORT_HEIGHT / safeZoom;
@@ -87,8 +87,33 @@ export function renderGame() {
     ctx.translate(canvasWidth / 2, canvasHeight / 2);
     ctx.scale(scale, scale);
     ctx.translate(-settings.cameraOffsetX, -settings.cameraOffsetY);
-    // --- End of New Rendering Logic ---
+    // --- End of New Rendering Logic ---\n
 
+    // --- NEW: PRE-RENDERING (TEXTURE BAKING) LOOP ---
+    // Before drawing anything, check if any planet textures need to be updated.
+    state.planets.forEach(planet => {
+        // Only re-bake if the flag is set and the canvas exists
+        if (planet.textureNeedsUpdate && planet.textureCanvas) {
+            const textureCtx = planet.textureCanvas.getContext('2d');
+            
+            // Clear the texture canvas before drawing
+            textureCtx.clearRect(0, 0, planet.textureCanvas.width, planet.textureCanvas.height);
+
+            // Center the planet inside its own texture canvas for the bake
+            const planetForBaking = {
+                ...planet,
+                x: planet.originalRadius,
+                y: planet.originalRadius
+            };
+
+            // Call the expensive drawing function ONCE on the off-screen context
+            drawPlanet.drawStaticCrateredPlanetInternal(textureCtx, planetForBaking);
+
+            // Mark the texture as up-to-date
+            planet.textureNeedsUpdate = false;
+        }
+    });
+    // --- END OF NEW PRE-RENDERING LOOP ---
 
     // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=drawBackgroundElements##
     if (typeof settings.worldMinX !== 'undefined') {
@@ -101,11 +126,39 @@ export function renderGame() {
     // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=drawBackgroundElements##
 
     // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=renderPlanetsLoop##
+    // --- THIS IS THE MODIFIED PLANET RENDERING LOOP ---
     state.planets.forEach(planet => {
-        drawPlanet.renderPlanetState(ctx, planet); 
+        // Don't draw if destroyed (unless it's a black hole)
+        if (planet.isDestroyed && !planet.isBlackHole) {
+            return;
+        }
+
+        if (planet.isBlackHole) {
+            // Black holes are simple, just draw a black circle.
+            ctx.beginPath(); 
+            ctx.arc(planet.x, planet.y, planet.radius, 0, Math.PI * 2); 
+            ctx.fillStyle = 'black'; 
+            ctx.fill();
+        } else if (planet.textureCanvas && (planet.massKg ?? 0) > 0 && !planet.isDestroying) {
+            // STEP 1: Draw the pre-baked texture. This is extremely fast!
+            ctx.drawImage(
+                planet.textureCanvas,
+                planet.x - planet.originalRadius, // Position it correctly in the world
+                planet.y - planet.originalRadius
+            );
+        }
+
+        // STEP 2: Draw overlays on top of the texture. These are cheap.
+        if (planet.isBreakingUp) {
+            const breakupProgress = Math.min(1, planet.breakupFrame / config.BREAKUP_DURATION_FRAMES);
+            drawPlanet.drawShatterCracksInternal(ctx, planet, breakupProgress);
+        }
+        
+        // STEP 3: Draw destruction effects. These were always separate and are fine.
         drawEffects.renderCoreEffects(ctx, planet, settings); 
         drawEffects.renderShockwaves(ctx, planet, settings);
     });
+    // --- END OF MODIFIED PLANET RENDERING LOOP ---
     // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=renderPlanetsLoop##
 
     // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=renderGlobalDebris##

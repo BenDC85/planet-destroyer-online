@@ -142,7 +142,18 @@ export function initializeState(canvasWidth, canvasHeight, initialSettings = {},
 
     if (serverPlanets) {
         currentState.planets = serverPlanets.map(serverPlanet => {
-            return { ...serverPlanet }; 
+            // Create a client-side representation of the planet
+            const clientPlanet = { ...serverPlanet };
+
+            // Give this planet its own canvas for pre-rendering its texture
+            clientPlanet.textureCanvas = document.createElement('canvas');
+            clientPlanet.textureCanvas.width = clientPlanet.originalRadius * 2;
+            clientPlanet.textureCanvas.height = clientPlanet.originalRadius * 2;
+            
+            // Flag that this new planet needs its texture baked for the first time
+            clientPlanet.textureNeedsUpdate = true;
+
+            return clientPlanet; 
         });
         console.log(`   Populated ${currentState.planets.length} planets from server data.`);
     } else {
