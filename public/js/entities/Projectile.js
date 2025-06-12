@@ -5,6 +5,8 @@
 
 
 
+
+
 import * as config from '../config.js';
 
 import * as utils from '../utils.js';
@@ -25,11 +27,11 @@ export class Projectile {
 
     /** Constructor - Now expects angle and initialSpeedInternalPxFrame for vx,vy setup */
 
-    constructor(id, ownerShipId, x, y, angle, initialSpeedInternalPxFrame, color, projectileMass) {
-
+    // ##AI_MODIFICATION_START##
+    constructor(id, ownerShipId, x, y, angle, initialSpeedInternalPxFrame, color, projectileMass, isGhost = false) {
+    // ##AI_MODIFICATION_END##
         const state = getState(); 
         const settings = state?.settings; 
-
 
 
 
@@ -44,13 +46,11 @@ export class Projectile {
 
 
 
-
         this.vx = Math.cos(angle) * initialSpeedInternalPxFrame;
         this.vy = Math.sin(angle) * initialSpeedInternalPxFrame;
         
         this.angle = angle; 
         this.initialSpeedInternalPxFrame = initialSpeedInternalPxFrame; 
-
 
 
 
@@ -64,11 +64,9 @@ export class Projectile {
 
 
 
-
         const clientPixelsPerMeter = settings?.pixelsPerMeter || config.PIXELS_PER_METER;
         const clientSecondsPerFrame = settings?.secondsPerFrame || config.SECONDS_PER_FRAME;
         this.initialSpeed_mps = (initialSpeedInternalPxFrame / clientPixelsPerMeter) / clientSecondsPerFrame;
-
 
 
 
@@ -78,6 +76,10 @@ export class Projectile {
         this.inactiveTrailColor = '#D2691E'; 
         this.trailLife = config.PROJECTILE_TRAIL_PERSIST_DURATION_FRAMES;
         this.trailPersistsAfterImpact = true;
+        
+        // ##AI_MODIFICATION_START##
+        this.isGhost = isGhost;
+        // ##AI_MODIFICATION_END##
         
         // --- BEGIN MODIFICATION: Client-side lifespan tracking ---
         this.framesAlive = 0;
@@ -106,12 +108,10 @@ export class Projectile {
 
 
 
-
         if (!this.isActive && this.trailLife > 0) {
             this.trailLife--;
             return; 
         }
-
 
 
 
@@ -141,17 +141,14 @@ export class Projectile {
 
 
 
-
         this.prevX = this.x;
         this.prevY = this.y;
 
 
 
 
-
         let totalAccX_pixels = 0;
         let totalAccY_pixels = 0;
-
 
 
 
@@ -205,7 +202,6 @@ export class Projectile {
                 totalAccY_pixels += accY_mps2 * scaleFactor;
             }
         });
-
 
 
 
@@ -270,10 +266,8 @@ export class Projectile {
 
 
 
-
             ctx.save();
             ctx.strokeStyle = this.isActive ? this.trailColor : this.inactiveTrailColor;
-
 
 
 
@@ -283,7 +277,6 @@ export class Projectile {
                 trailAlpha = Math.max(0, this.trailLife / config.PROJECTILE_TRAIL_PERSIST_DURATION_FRAMES);
                 ctx.globalAlpha = trailAlpha;
             }
-
 
 
 
@@ -298,7 +291,6 @@ export class Projectile {
             ctx.globalAlpha = 1.0; 
             ctx.restore();
         }
-
 
 
 

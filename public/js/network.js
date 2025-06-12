@@ -226,8 +226,10 @@ function setupSocketListeners() {
 
         const activeServerIds = new Set(serverProjectilesData.map(p => p.id));
         clientState.projectiles = clientState.projectiles.filter(p => {
-             // Keep the projectile if the server says it's active OR if it's a non-ghost projectile that just hit something and needs to show its trail
-            return activeServerIds.has(p.id) || (p.isGhost === false && p.trailPersistsAfterImpact && p.trailLife > 0);
+             // Keep the projectile if the server says it's active, OR it's a client-side ghost, OR it's a non-ghost projectile that just hit something and needs to show its trail
+            // ##AI_MODIFICATION_START##
+            return activeServerIds.has(p.id) || p.isGhost || (p.trailPersistsAfterImpact && p.trailLife > 0);
+            // ##AI_MODIFICATION_END##
         });
     });
 

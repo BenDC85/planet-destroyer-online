@@ -229,11 +229,11 @@ export function setupInputListeners(canvasElement) {
         const shouldBeOpen = index === 0; 
         title.addEventListener('click', handleCollapseToggle);
         if (shouldBeOpen) {
-            title.textContent = title.textContent.replace(/\[[+-]\]/g, '[-]');
+            title.textContent = title.textContent.replace(/\\[[+-]\\]/g, '[-]');
             contentDiv.style.maxHeight = contentDiv.scrollHeight + "px";
             contentDiv.classList.remove('collapsed');
         } else {
-            title.textContent = title.textContent.replace(/\[[+-]\]/g, '[+]');
+            title.textContent = title.textContent.replace(/\\[[+-]\\]/g, '[+]');
             contentDiv.style.maxHeight = '0px';
             contentDiv.classList.add('collapsed');
         }
@@ -268,6 +268,7 @@ function handleKeyDown(event) {
             } else if (event.code === 'Space') {
                 const ghostProjectileData = stateModifiers.fireShipProjectile(); 
                 if (ghostProjectileData) {
+                    // ##AI_MODIFICATION_START##
                     const ghost = new Projectile(
                         ghostProjectileData.id,
                         ghostProjectileData.ownerShipId,
@@ -276,8 +277,10 @@ function handleKeyDown(event) {
                         ghostProjectileData.angle,
                         ghostProjectileData.initialSpeedInternalPxFrame,
                         ghostProjectileData.color,
-                        ghostProjectileData.massKg
+                        ghostProjectileData.massKg,
+                        ghostProjectileData.isGhost // Pass the new flag here
                     );
+                    // ##AI_MODIFICATION_END##
                     stateModifiers.addProjectile(ghost);
                 }
             }
@@ -415,16 +418,30 @@ function handleGenericNumberInput(modifierFunction, valueElement, hudPrecision, 
 
 
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_START=resetHandler##
+// ##AI_MODIFICATION_START##
 function handleReset() {
     if (!canvas) { console.error("Reset failed: Canvas not found."); return; }
     
-    console.log("InputHandler: Requesting server to reset world...");
+    console.log("InputHandler: Requesting server to reset world with current settings...");
     if (socket && socket.connected) {
-        socket.emit('request_world_reset', {}); 
+        
+        // 1. Get the current planet count value from the HUD input element.
+        const planetCountValue = planetCountInput ? parseInt(planetCountInput.value, 10) : config.DEFAULT_PLANET_COUNT;
+
+        // 2. Create a settings object to send to the server.
+        const resetSettingsPayload = {
+            planetCount: isNaN(planetCountValue) ? config.DEFAULT_PLANET_COUNT : planetCountValue
+            // Other settings can be added here in the future if the server supports them.
+        };
+
+        // 3. Send the settings object in the payload.
+        socket.emit('request_world_reset', resetSettingsPayload); 
+
     } else {
         console.error("Cannot send world reset request: Socket not connected.");
     }
 }
+// ##AI_MODIFICATION_END##
 // ##AI_AUTOMATION::TARGET_ID_DEFINE_END=resetHandler##
 
 
@@ -467,11 +484,11 @@ function handleCollapseToggle(event) {
     const isCollapsed = contentDiv.classList.contains('collapsed');
     if (isCollapsed) {
         contentDiv.classList.remove('collapsed');
-        title.textContent = title.textContent.replace(/\[[+-]\]/g, '[-]');
+        title.textContent = title.textContent.replace(/\\[[+-]\\]/g, '[-]');
         contentDiv.style.maxHeight = contentDiv.scrollHeight + "px"; 
     } else {
         contentDiv.classList.add('collapsed');
-        title.textContent = title.textContent.replace(/\[[+-]\]/g, '[+]');
+        title.textContent = title.textContent.replace(/\\[[+-]\\]/g, '[+]');
         contentDiv.style.maxHeight = '0px'; 
     }
 }
