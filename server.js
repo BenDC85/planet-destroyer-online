@@ -1,3 +1,4 @@
+/* File: server.js */
 // server.js for Planet Destroyer Online
 
 
@@ -9,10 +10,7 @@ const socketIo = require('socket.io');
 const { createClient } = require('@supabase/supabase-js');
 
 
-// --- Server-Side Config ---
-const SV_WORLD_MIN_X = -3092; const SV_WORLD_MIN_Y = -2015; // Adjusted for new aspect ratio was -2900 (a bigger negative number will increase **one** side)
-const SV_WORLD_MAX_X = 4992; const SV_WORLD_MAX_Y = 2015; // Adjusted for new aspect ratio was 4800 (a bigger positive number will increase the **other** side)
-const SV_WORLD_WIDTH = SV_WORLD_MAX_X - SV_WORLD_MIN_X;
+// --- Server-Side Config ---\nconst SV_WORLD_MIN_X = -3092; const SV_WORLD_MIN_Y = -2015; // Adjusted for new aspect ratio was -2900 (a bigger negative number will increase **one** side)\nconst SV_WORLD_MAX_X = 4992; const SV_WORLD_MAX_Y = 2015; // Adjusted for new aspect ratio was 4800 (a bigger positive number will increase the **other** side)\nconst SV_WORLD_WIDTH = SV_WORLD_MAX_X - SV_WORLD_MIN_X;
 const SV_WORLD_HEIGHT = SV_WORLD_MAX_Y - SV_WORLD_MIN_Y;
 const SV_PIXELS_PER_METER = 0.5;
 const SV_DEFAULT_PLANET_COUNT = 6;
@@ -53,6 +51,10 @@ const SV_PROJECTILE_BOUNDS_BUFFER = 2000;
 const SV_PROJECTILE_SIZE_PX = 5;
 const SV_PROJECTILE_MIN_MASS_KG = 1;
 const SV_PROJECTILE_MAX_MASS_KG = 5000;
+// ##AI_MODIFICATION_START##
+const SV_PROJECTILE_HISTORY_DURATION_MS = 900; // Max time to rewind (ms)
+const SV_PROJECTILE_MAX_HISTORY_POINTS = Math.ceil(SV_PROJECTILE_HISTORY_DURATION_MS / (1000 / SV_PROJECTILE_SIMULATION_FPS)) + 5; // Calculate buffer size + a small margin
+// ##AI_MODIFICATION_END##
 const SV_CRATER_SCALING_C = 1.0e-1;
 const SV_KE_TO_MASS_EJECT_ETA = 3e+1;
 const SV_VELOCITY_SCALING_BASELINE_MPS = 50;
@@ -123,9 +125,7 @@ const SV_MAX_PLAYER_SPAWN_ATTEMPTS = 100;
 const SV_PLAYER_SPAWN_WORLD_PADDING_FACTOR = 5;
 const SV_MAX_PROJECTILES_PER_PLAYER = 20;
 const DERELICT_CLEANUP_TIMEOUT_MS = 5 * 60 * 1000;
-// --- End Server-Side Config ---
-
-const app = express();
+// --- End Server-Side Config ---\n\nconst app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 const PORT = process.env.PORT || 10000;
@@ -147,15 +147,7 @@ let serverProjectiles = [];
 let nextProjectileId = 0;
 let serverChunks = [];
 let nextServerChunkId = 0;
-// --- END: State Variables ---
-
-
-// =================================================================================
-// START OF UTILITY FUNCTIONS
-// =================================================================================
-
-function getPlanetDisplayName(planet) {
-    const planetTypeInfo = SV_PLANET_TYPES[planet.type];
+// --- END: State Variables ---\n\n\n// =================================================================================\n// START OF UTILITY FUNCTIONS\n// =================================================================================\n\nfunction getPlanetDisplayName(planet) {\n    const planetTypeInfo = SV_PLANET_TYPES[planet.type];
     const baseName = planetTypeInfo && planetTypeInfo.displayName ? planetTypeInfo.displayName : "Planet";
     const idSuffix = planet.id.split('_').pop();
     return `${baseName} #${idSuffix}`;
@@ -330,18 +322,9 @@ function generatePlanetsOnServer(numPlanetsOverride = null) {
     console.log(`[SERVER] Successfully generated ${serverPlanetsState.length} planets.`);
 }
 
-// =================================================================================
-// END OF UTILITY FUNCTIONS
-// =================================================================================
-
-// --- BEGIN: Health Check Endpoint ---
-// This route is used by the hosting platform (Render) to verify the server is alive.
-app.get('/health', (req, res) => {
-    res.status(200).send('OK');
+// =================================================================================\n// END OF UTILITY FUNCTIONS\n// =================================================================================\n\n// --- BEGIN: Health Check Endpoint ---\n// This route is used by the hosting platform (Render) to verify the server is alive.\napp.get('/health', (req, res) => {\n    res.status(200).send('OK');
 });
-// --- END: Health Check Endpoint ---
-
-generatePlanetsOnServer();
+// --- END: Health Check Endpoint ---\n\ngeneratePlanetsOnServer();
 io.on('connection', (socket) => {
     console.log(`--- Client connected: ${socket.id} (Awaiting join request) ---`);
 
@@ -517,11 +500,12 @@ io.on('connection', (socket) => {
             massKg: validatedMass,
             isActive: true,
             framesAlive: 0,
-            tempId: projectileData.tempId 
+            tempId: projectileData.tempId,
+            // ##AI_MODIFICATION_START##
+            positionHistory: [{ time: Date.now(), x: startX, y: startY }], // Initialize position history
+            // ##AI_MODIFICATION_END##
         };
-        // --- END OF SECURITY FIX ---
-
-        serverProjectiles.push(newServerProjectile);
+        // --- END OF SECURITY FIX ---\n\n        serverProjectiles.push(newServerProjectile);
         io.emit('new_projectile_created', newServerProjectile);
     });
 
@@ -584,6 +568,10 @@ io.on('connection', (socket) => {
                 }
             }, DERELICT_CLEANUP_TIMEOUT_MS);
 
+            // ##AI_MODIFICATION_START##
+            // This block is now commented out to allow the world to persist when empty.
+            // The world will now only be reset by a player using the "Reset Game" button.
+            /*
             if (connectedPlayersCount === 0) {
                 console.log("All players disconnected. Resetting world and clearing entities.");
                 generatePlanetsOnServer();
@@ -591,9 +579,9 @@ io.on('connection', (socket) => {
                 nextProjectileId = 0;
                 serverChunks = [];
                 nextServerChunkId = 0;
-                // --- BUG FIX: Do NOT clear playerData. This preserves data for reconnects. ---
-                // playerData = {}; // <-- This line was removed.
             }
+            */
+            // ##AI_MODIFICATION_END##
         } else {
             console.log(`--- Client disconnected: ${socket.id} (was not an active player or already removed) ---`);
         }
@@ -669,11 +657,22 @@ function generateServerChunks(planet, impactPoint) {
     console.log(`[SERVER] Generated ${chunksGenerated} server-side chunks for planet ${planet.id}.`);
 }
 
-function updateServerProjectiles() {
+function updateServerProjectiles(currentTickTime) {
     if (serverProjectiles.length === 0) return;
+
     for (let i = serverProjectiles.length - 1; i >= 0; i--) {
         const proj = serverProjectiles[i];
         if (!proj.isActive) continue;
+
+        // ##AI_MODIFICATION_START##
+        // Record the projectile's current position and the current server time.
+        proj.positionHistory.push({ time: currentTickTime, x: proj.x, y: proj.y });
+        // Trim the history buffer to prevent it from growing indefinitely.
+        if (proj.positionHistory.length > SV_PROJECTILE_MAX_HISTORY_POINTS) {
+            proj.positionHistory.shift();
+        }
+        // ##AI_MODIFICATION_END##
+
         proj.prevX = proj.x;
         proj.prevY = proj.y;
         let totalAccX_pixels = 0;
@@ -792,22 +791,53 @@ function updateServerProjectiles() {
                 };
                 if (!(projMaxX < planetBounds.minX || projMinX > planetBounds.maxX || projMaxY < planetBounds.minY || projMinY > planetBounds.maxY)) {
                     
+                    // ##AI_MODIFICATION_START##
+                    // This block implements the new, accurate lag compensation by rewinding projectile history.
                     let checkSegmentStart = { x: proj.prevX, y: proj.prevY };
                     let checkSegmentEnd = { x: proj.x, y: proj.y };
                     const owner = playerData[proj.ownerUserId];
 
-                    if (owner && owner.isConnected && owner.ping > 0) {
-                        const latencySeconds = (owner.ping / 2) / 1000.0;
-                        const framesToRewind = Math.round(latencySeconds / SV_PROJECTILE_SECONDS_PER_FRAME);
+                    if (owner && owner.isConnected && owner.ping > 0 && proj.positionHistory && proj.positionHistory.length > 1) {
+                        const history = proj.positionHistory;
+                        const halfPing = owner.ping / 2;
                         
-                        if (framesToRewind > 0) {
-                            checkSegmentEnd.x -= proj.vx * framesToRewind;
-                            checkSegmentEnd.y -= proj.vy * framesToRewind;
-                            checkSegmentStart.x -= proj.vx * framesToRewind;
-                            checkSegmentStart.y -= proj.vy * framesToRewind;
-                        }
+                        // Don't rewind further back than our stored history allows.
+                        const rewindTimeMs = Math.min(halfPing, SV_PROJECTILE_HISTORY_DURATION_MS);
+                        
+                        const targetTime = currentTickTime - rewindTimeMs;
+                        const targetTimePrevFrame = targetTime - (1000 / SV_PROJECTILE_SIMULATION_FPS);
+
+                        // Helper function to find a projectile's position at a specific time in the past.
+                        const findHistoricalPosition = (time, historicalData) => {
+                            if (time < historicalData[0].time) {
+                                return { x: historicalData[0].x, y: historicalData[0].y };
+                            }
+                            // Iterate backwards to find the two points that surround the target time.
+                            for (let j = historicalData.length - 1; j > 0; j--) {
+                                const p2 = historicalData[j];   // Newer point
+                                const p1 = historicalData[j-1]; // Older point
+                                
+                                if (time >= p1.time && time <= p2.time) {
+                                    const timeDiff = p2.time - p1.time;
+                                    if (timeDiff <= 0) { // Should not happen, but safeguard.
+                                        return { x: p2.x, y: p2.y };
+                                    }
+                                    const interpolationFactor = (time - p1.time) / timeDiff;
+                                    const historicalX = p1.x + (p2.x - p1.x) * interpolationFactor;
+                                    const historicalY = p1.y + (p2.y - p1.y) * interpolationFactor;
+                                    return { x: historicalX, y: historicalY };
+                                }
+                            }
+                            // If time is newer than our latest history, use the latest known position.
+                            return { x: historicalData[historicalData.length - 1].x, y: historicalData[historicalData.length - 1].y };
+                        };
+
+                        checkSegmentEnd = findHistoricalPosition(targetTime, history);
+                        checkSegmentStart = findHistoricalPosition(targetTimePrevFrame, history);
                     }
+                    
                     const impact = serverFindAccurateImpactPoint(checkSegmentStart, checkSegmentEnd, planet);
+                    // ##AI_MODIFICATION_END##
 
                     if (impact) {
                         proj.isActive = false;
@@ -895,7 +925,7 @@ function updateServerProjectiles() {
     serverProjectiles = serverProjectiles.filter(p => p.isActive);
 }
 
-function updateServerChunks() {
+function updateServerChunks(currentTickTime) {
     if (serverChunks.length === 0) return;
     for (let i = serverChunks.length - 1; i >= 0; i--) {
         const chunk = serverChunks[i];
@@ -1117,7 +1147,7 @@ function updateServerChunks() {
     serverChunks = serverChunks.filter(c => c.isActive);
 }
 
-function updateServerPlanetDestructionStates() {
+function updateServerPlanetDestructionStates(currentTickTime) {
     serverPlanetsState.forEach(planet => {
         if (planet.isBreakingUp) {
             planet.breakupFrame++;
@@ -1166,10 +1196,10 @@ setInterval(() => {
     const deltaTime = (now - lastUpdateTime) / 1000.0;
     lastUpdateTime = now;
 
-    // Run all physics updates
-    updateServerPlanetDestructionStates();
-    updateServerProjectiles();
-    updateServerChunks();
+    // Run all physics updates, passing the current server time for consistency
+    updateServerPlanetDestructionStates(now);
+    updateServerProjectiles(now);
+    updateServerChunks(now);
 
     // Send state updates to clients if players are connected
     const connectedPlayerCount = Object.values(playerData).filter(p => p.isConnected).length;
@@ -1190,10 +1220,7 @@ setInterval(() => {
 setInterval(() => {
     io.emit('server_heartbeat');
 }, 25000); // 25 seconds
-// --- END: Server-to-Client Heartbeat ---
-
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server for Planet Destroyer Online is running on http://0.0.0.0:${PORT}`);
+// --- END: Server-to-Client Heartbeat ---\n\nserver.listen(PORT, '0.0.0.0', () => {\n    console.log(`Server for Planet Destroyer Online is running on http://0.0.0.0:${PORT}`);
     console.log("Socket.IO is attached and listening.");
     if (supabaseUrl && supabaseKey) console.log("Supabase client is configured.");
     else console.warn("Supabase URL/Key NOT DETECTED. Database features will fail.");
