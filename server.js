@@ -1098,11 +1098,20 @@ function updateServerChunks(currentTickTime) {
                     const chunkSpeed_pixels_frame = Math.sqrt(chunk.vx ** 2 + chunk.vy ** 2);
                     const chunkSpeed_mps = Math.max(0.1, chunkSpeed_pixels_frame / SV_PIXELS_PER_METER / SV_CHUNK_SECONDS_PER_FRAME);
                     const kineticEnergy = 0.5 * chunk.massKg * (chunkSpeed_mps ** 2);
-                    let damageDealt = kineticEnergy * SV_CHUNK_DAMAGE_KE_SCALING_FACTOR;
-                    damageDealt = Math.round(damageDealt);
-                    damageDealt = Math.max(SV_CHUNK_DAMAGE_MIN, Math.min(damageDealt, SV_CHUNK_DAMAGE_MAX));
+                    
+                    // --- MODIFICATION START ---
+                    // Calculate the raw, uncapped damage first
+                    const rawDamage = Math.round(kineticEnergy * SV_CHUNK_DAMAGE_KE_SCALING_FACTOR);
+                    
+                    // Now, clamp the damage to the defined min/max values
+                    const damageDealt = Math.max(SV_CHUNK_DAMAGE_MIN, Math.min(rawDamage, SV_CHUNK_DAMAGE_MAX));
+                    
                     player.health -= damageDealt;
-                    console.log(`[SERVER] Chunk ${chunk.id} HIT SHIP ${player.userId} for ${damageDealt} damage. Player Health: ${player.health}`);
+                    
+                    // Modify the console log to report both values
+                    console.log(`[SERVER] Chunk ${chunk.id} HIT SHIP ${player.userId}. Raw Damage: ${rawDamage}, Applied Damage: ${damageDealt}. Player Health: ${player.health}`);
+                    // --- MODIFICATION END ---
+                    
                     io.emit('ship_hit_by_chunk', { chunkId: chunk.id, hitPlayerId: player.userId, newHealth: player.health, damageDealt: damageDealt });
                     if (player.health <= 0) {
                         player.isAlive = false;
