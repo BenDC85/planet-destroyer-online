@@ -114,12 +114,14 @@ const SV_PHYSICS_CONSTANTS = {
 };
 
 // Ship Combat & Spawn Config
+// --- MODIFICATION START ---
 const SV_SHIP_RADIUS_PX = 30;
-const SV_SHIP_DEFAULT_HEALTH = 100;
+const SV_SHIP_DEFAULT_HEALTH = 1000; // Increased player health
 const SV_PROJECTILE_DAMAGE = 25;
-const SV_CHUNK_DAMAGE_MIN = 5;
-const SV_CHUNK_DAMAGE_MAX = 40;
-const SV_CHUNK_DAMAGE_KE_SCALING_FACTOR = 0.02;
+// const SV_CHUNK_DAMAGE_MIN = 5; // No longer needed
+// const SV_CHUNK_DAMAGE_MAX = 40; // No longer needed
+const SV_CHUNK_DAMAGE_SQRT_KE_SCALING_FACTOR = 0.05; // Damage is now uncapped and based on Sqrt(KE)
+// --- MODIFICATION END ---
 const SV_SHIP_RESPAWN_DELAY_MS = 5000;
 const SV_SHIP_SPAWN_SAFETY_RADIUS_FACTOR = 3.0;
 const SV_MAX_PLAYER_SPAWN_ATTEMPTS = 100;
@@ -1100,16 +1102,16 @@ function updateServerChunks(currentTickTime) {
                     const kineticEnergy = 0.5 * chunk.massKg * (chunkSpeed_mps ** 2);
                     
                     // --- MODIFICATION START ---
-                    // Calculate the raw, uncapped damage first
-                    const rawDamage = Math.round(kineticEnergy * SV_CHUNK_DAMAGE_KE_SCALING_FACTOR);
+                    // Calculate raw damage based on the Sqrt of KE. This is now uncapped.
+                    const rawDamage = Math.round(Math.sqrt(kineticEnergy) * SV_CHUNK_DAMAGE_SQRT_KE_SCALING_FACTOR);
                     
-                    // Now, clamp the damage to the defined min/max values
-                    const damageDealt = Math.max(SV_CHUNK_DAMAGE_MIN, Math.min(rawDamage, SV_CHUNK_DAMAGE_MAX));
+                    // The damage is no longer clamped.
+                    const damageDealt = rawDamage;
                     
                     player.health -= damageDealt;
                     
-                    // Modify the console log to report both values
-                    console.log(`[SERVER] Chunk ${chunk.id} HIT SHIP ${player.userId}. Raw Damage: ${rawDamage}, Applied Damage: ${damageDealt}. Player Health: ${player.health}`);
+                    // The console log now only needs to report the applied damage.
+                    console.log(`[SERVER] Chunk ${chunk.id} HIT SHIP ${player.userId} for ${damageDealt} damage. Player Health: ${player.health}`);
                     // --- MODIFICATION END ---
                     
                     io.emit('ship_hit_by_chunk', { chunkId: chunk.id, hitPlayerId: player.userId, newHealth: player.health, damageDealt: damageDealt });
