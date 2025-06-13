@@ -234,7 +234,6 @@ function serverFindAccurateImpactPoint(proj, p1, p2, planet, currentTickTime) {
         }
     }
     
-    // Now perform the fine-grained collision check using the (potentially rewound) segment.
     const segmentDx = checkSegmentEnd.x - checkSegmentStart.x;
     const segmentDy = checkSegmentEnd.y - checkSegmentStart.y;
     // ##AI_MODIFICATION_END##
@@ -533,13 +532,10 @@ io.on('connection', (socket) => {
             }
         }
 
-        // --- SECURITY FIX: Generate projectile state on the server ---
-        // Do NOT trust client for position or angle. Use server's authoritative data.
         const serverProjId = `srv_proj_${nextProjectileId++}`;
-        const initialSpeed = projectileData.initialSpeedInternalPxFrame; // Client can still suggest speed
+        const initialSpeed = projectileData.initialSpeedInternalPxFrame; 
         const validatedMass = Math.max(SV_PROJECTILE_MIN_MASS_KG, Math.min(projectileData.massKg, SV_PROJECTILE_MAX_MASS_KG));
 
-        // Use server's own player state for position and direction
         const muzzleOffsetX = Math.cos(player.angle) * SV_SHIP_RADIUS_PX * 1.1;
         const muzzleOffsetY = Math.sin(player.angle) * SV_SHIP_RADIUS_PX * 1.1;
         const startX = player.x + muzzleOffsetX;
@@ -550,26 +546,20 @@ io.on('connection', (socket) => {
         const newServerProjectile = {
             id: serverProjId,
             ownerUserId: player.userId,
-            x: startX,          // Authoritative start X
-            y: startY,          // Authoritative start Y
-            prevX: startX,      // Authoritative previous X
-            prevY: startY,      // Authoritative previous Y
-            vx: vx,             // Authoritative velocity X
-            vy: vy,             // Authoritative velocity Y
-            angle: player.angle,// Authoritative angle
+            x: startX, y: startY,
+            prevX: startX, prevY: startY,
+            vx: vx, vy: vy,
+            angle: player.angle,
             initialSpeedInternalPxFrame: initialSpeed,
             massKg: validatedMass,
             isActive: true,
             framesAlive: 0,
             tempId: projectileData.tempId,
-            positionHistory: [{ time: Date.now(), x: startX, y: startY }], // Initialize position history
+            positionHistory: [{ time: Date.now(), x: startX, y: startY }],
         };
-        // --- END OF SECURITY FIX ---
 
         serverProjectiles.push(newServerProjectile);
         
-        // Create a "sanitized" version of the projectile to send to clients,
-        // removing the server-only positionHistory to save bandwidth.
         const sanitizedProjectile = { ...newServerProjectile };
         delete sanitizedProjectile.positionHistory;
         io.emit('new_projectile_created', sanitizedProjectile);
@@ -586,7 +576,6 @@ io.on('connection', (socket) => {
         console.log(`[SERVER] Received 'request_world_reset' from ${requester.playerName}.`);
         let numPlanetsForReset = SV_DEFAULT_PLANET_COUNT;
         
-        // This check is now safe, as it's inside the connection handler
         if (clientSuggestedSettings && typeof clientSuggestedSettings.planetCount === 'number' && clientSuggestedSettings.planetCount >= 1 && clientSuggestedSettings.planetCount <= 50) {
             numPlanetsForReset = clientSuggestedSettings.planetCount;
         }
@@ -1197,12 +1186,10 @@ setInterval(() => {
     const deltaTime = (now - lastUpdateTime) / 1000.0;
     lastUpdateTime = now;
 
-    // Run all physics updates
     updateServerPlanetDestructionStates();
     updateServerProjectiles(now);
     updateServerChunks(now);
 
-    // Send state updates to clients if players are connected
     const connectedPlayerCount = Object.values(playerData).filter(p => p.isConnected).length;
     if (connectedPlayerCount > 0) {
         const projectileUpdates = serverProjectiles.map(p => ({ id: p.id, x: p.x, y: p.y, vx: p.vx, vy: p.vy, isActive: p.isActive }));
