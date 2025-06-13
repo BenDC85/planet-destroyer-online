@@ -10,7 +10,10 @@ const socketIo = require('socket.io');
 const { createClient } = require('@supabase/supabase-js');
 
 
-// --- Server-Side Config ---\nconst SV_WORLD_MIN_X = -3092; const SV_WORLD_MIN_Y = -2015; // Adjusted for new aspect ratio was -2900 (a bigger negative number will increase **one** side)\nconst SV_WORLD_MAX_X = 4992; const SV_WORLD_MAX_Y = 2015; // Adjusted for new aspect ratio was 4800 (a bigger positive number will increase the **other** side)\nconst SV_WORLD_WIDTH = SV_WORLD_MAX_X - SV_WORLD_MIN_X;
+// --- Server-Side Config ---
+const SV_WORLD_MIN_X = -3092; const SV_WORLD_MIN_Y = -2015; // Adjusted for new aspect ratio was -2900 (a bigger negative number will increase **one** side)
+const SV_WORLD_MAX_X = 4992; const SV_WORLD_MAX_Y = 2015; // Adjusted for new aspect ratio was 4800 (a bigger positive number will increase the **other** side)
+const SV_WORLD_WIDTH = SV_WORLD_MAX_X - SV_WORLD_MIN_X;
 const SV_WORLD_HEIGHT = SV_WORLD_MAX_Y - SV_WORLD_MIN_Y;
 const SV_PIXELS_PER_METER = 0.5;
 const SV_DEFAULT_PLANET_COUNT = 6;
@@ -51,10 +54,8 @@ const SV_PROJECTILE_BOUNDS_BUFFER = 2000;
 const SV_PROJECTILE_SIZE_PX = 5;
 const SV_PROJECTILE_MIN_MASS_KG = 1;
 const SV_PROJECTILE_MAX_MASS_KG = 5000;
-// ##AI_MODIFICATION_START##
 const SV_PROJECTILE_HISTORY_DURATION_MS = 900; // Max time to rewind (ms)
 const SV_PROJECTILE_MAX_HISTORY_POINTS = Math.ceil(SV_PROJECTILE_HISTORY_DURATION_MS / (1000 / SV_PROJECTILE_SIMULATION_FPS)) + 5; // Calculate buffer size + a small margin
-// ##AI_MODIFICATION_END##
 const SV_CRATER_SCALING_C = 1.0e-1;
 const SV_KE_TO_MASS_EJECT_ETA = 3e+1;
 const SV_VELOCITY_SCALING_BASELINE_MPS = 50;
@@ -125,7 +126,9 @@ const SV_MAX_PLAYER_SPAWN_ATTEMPTS = 100;
 const SV_PLAYER_SPAWN_WORLD_PADDING_FACTOR = 5;
 const SV_MAX_PROJECTILES_PER_PLAYER = 20;
 const DERELICT_CLEANUP_TIMEOUT_MS = 5 * 60 * 1000;
-// --- End Server-Side Config ---\n\nconst app = express();
+// --- End Server-Side Config ---
+
+const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 const PORT = process.env.PORT || 10000;
@@ -147,7 +150,15 @@ let serverProjectiles = [];
 let nextProjectileId = 0;
 let serverChunks = [];
 let nextServerChunkId = 0;
-// --- END: State Variables ---\n\n\n// =================================================================================\n// START OF UTILITY FUNCTIONS\n// =================================================================================\n\nfunction getPlanetDisplayName(planet) {\n    const planetTypeInfo = SV_PLANET_TYPES[planet.type];
+// --- END: State Variables ---
+
+
+// =================================================================================
+// START OF UTILITY FUNCTIONS
+// =================================================================================
+
+function getPlanetDisplayName(planet) {
+    const planetTypeInfo = SV_PLANET_TYPES[planet.type];
     const baseName = planetTypeInfo && planetTypeInfo.displayName ? planetTypeInfo.displayName : "Planet";
     const idSuffix = planet.id.split('_').pop();
     return `${baseName} #${idSuffix}`;
@@ -184,32 +195,72 @@ function serverCalculateBindingEnergy(planetMassKg, planetRadiusM) {
     return (3 / 5) * SV_G * (planetMassKg ** 2) / planetRadiusM;
 }
 
-function serverFindAccurateImpactPoint(p1, p2, planet) {
-    const segmentDx = p2.x - p1.x;
-    const segmentDy = p2.y - p1.y;
+// ##AI_MODIFICATION_START##
+// The function signature is modified to accept the projectile object and current server time
+// so it can perform the rewind calculation internally, only when needed.
+function serverFindAccurateImpactPoint(proj, p1, p2, planet, currentTickTime) {
+    let checkSegmentStart = p1;
+    let checkSegmentEnd = p2;
+    const owner = playerData[proj.ownerUserId];
+
+    // Check if we need to rewind time for lag compensation.
+    if (owner && owner.isConnected && owner.ping > 0 && proj.positionHistory && proj.positionHistory.length > 1) {
+        const history = proj.positionHistory;
+        const halfPing = owner.ping / 2;
+        const rewindTimeMs = Math.min(halfPing, SV_PROJECTILE_HISTORY_DURATION_MS);
+        
+        const targetTime = currentTickTime - rewindTimeMs;
+        const targetTimePrevFrame = targetTime - (1000 / SV_PROJECTILE_SIMULATION_FPS);
+
+        const findHistoricalPosition = (time, historicalData) => {
+            if (time <= historicalData[0].time) {
+                return { x: historicalData[0].x, y: historicalData[0].y };
+            }
+            for (let j = historicalData.length - 1; j > 0; j--) {
+                const pt2 = historicalData[j];
+                const pt1 = historicalData[j-1];
+                if (time >= pt1.time && time <= pt2.time) {
+                    const timeDiff = pt2.time - pt1.time;
+                    if (timeDiff <= 0) return { x: pt2.x, y: pt2.y };
+                    const factor = (time - pt1.time) / timeDiff;
+                    return { x: pt1.x + (pt2.x - pt1.x) * factor, y: pt1.y + (pt2.y - pt1.y) * factor };
+                }
+            }
+            return { x: historicalData[historicalData.length - 1].x, y: historicalData[historicalData.length - 1].y };
+        };
+
+        // Overwrite the check-segment with the historically accurate positions.
+        checkSegmentEnd = findHistoricalPosition(targetTime, history);
+        checkSegmentStart = findHistoricalPosition(targetTimePrevFrame, history);
+    }
+    
+    // Now perform the fine-grained collision check using the (potentially rewound) segment.
+    const segmentDx = checkSegmentEnd.x - checkSegmentStart.x;
+    const segmentDy = checkSegmentEnd.y - checkSegmentStart.y;
+    // ##AI_MODIFICATION_END##
     const segmentLenSq = segmentDx * segmentDx + segmentDy * segmentDy;
 
     if (segmentLenSq < 1e-6) {
-        const isP1Boundary = serverIsPointInsideCircle(p1.x, p1.y, planet.x, planet.y, planet.originalRadius);
-        const isP1Crater = serverIsPointInsideAnyCrater(p1.x, p1.y, planet);
+        const isP1Boundary = serverIsPointInsideCircle(checkSegmentStart.x, checkSegmentStart.y, planet.x, planet.y, planet.originalRadius);
+        const isP1Crater = serverIsPointInsideAnyCrater(checkSegmentStart.x, checkSegmentStart.y, planet);
         if (isP1Boundary && !isP1Crater) {
-            return { t: 0, point: { x: p1.x, y: p1.y } };
+            return { t: 0, point: { x: checkSegmentStart.x, y: checkSegmentStart.y } };
         }
         return null;
     }
 
     const segmentLen = Math.sqrt(segmentLenSq);
     const numSteps = Math.min(Math.max(5, Math.ceil(segmentLen / (SV_PROJECTILE_SIZE_PX * 2))), 30);
-    const p1IsInsideSolid = serverIsPointInsideCircle(p1.x, p1.y, planet.x, planet.y, planet.originalRadius) && !serverIsPointInsideAnyCrater(p1.x, p1.y, planet);
+    const p1IsInsideSolid = serverIsPointInsideCircle(checkSegmentStart.x, checkSegmentStart.y, planet.x, planet.y, planet.originalRadius) && !serverIsPointInsideAnyCrater(checkSegmentStart.x, checkSegmentStart.y, planet);
 
     if (p1IsInsideSolid) {
-        return { t: 0, point: { x: p1.x, y: p1.y } };
+        return { t: 0, point: { x: checkSegmentStart.x, y: checkSegmentStart.y } };
     }
 
     for (let i = 0; i <= numSteps; i++) {
         const t = (numSteps === 0) ? 0 : (i / numSteps);
-        const testX = p1.x + t * segmentDx;
-        const testY = p1.y + t * segmentDy;
+        const testX = checkSegmentStart.x + t * segmentDx;
+        const testY = checkSegmentStart.y + t * segmentDy;
         const isInsideBoundary = serverIsPointInsideCircle(testX, testY, planet.x, planet.y, planet.originalRadius);
         const isInsideCrater = serverIsPointInsideAnyCrater(testX, testY, planet);
         if (isInsideBoundary && !isInsideCrater) {
@@ -218,6 +269,7 @@ function serverFindAccurateImpactPoint(p1, p2, planet) {
     }
     return null;
 }
+
 
 function findRandomSafeSpawnPoint() {
     const safetyBufferFromPlanet = SV_SHIP_RADIUS_PX * SV_SHIP_SPAWN_SAFETY_RADIUS_FACTOR;
@@ -322,9 +374,18 @@ function generatePlanetsOnServer(numPlanetsOverride = null) {
     console.log(`[SERVER] Successfully generated ${serverPlanetsState.length} planets.`);
 }
 
-// =================================================================================\n// END OF UTILITY FUNCTIONS\n// =================================================================================\n\n// --- BEGIN: Health Check Endpoint ---\n// This route is used by the hosting platform (Render) to verify the server is alive.\napp.get('/health', (req, res) => {\n    res.status(200).send('OK');
+// =================================================================================
+// END OF UTILITY FUNCTIONS
+// =================================================================================
+
+// --- BEGIN: Health Check Endpoint ---
+// This route is used by the hosting platform (Render) to verify the server is alive.
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
 });
-// --- END: Health Check Endpoint ---\n\ngeneratePlanetsOnServer();
+// --- END: Health Check Endpoint ---
+
+generatePlanetsOnServer();
 io.on('connection', (socket) => {
     console.log(`--- Client connected: ${socket.id} (Awaiting join request) ---`);
 
@@ -407,7 +468,7 @@ io.on('connection', (socket) => {
                 playerNumber: connectedPlayersCount + 1 // Simple number assignment
             };
             
-            console.log(`Socket ${socket.id} joined as Player ${playerData[trimmedUserId].playerNumber} (Name: \\\"${trimmedPlayerName}\\\", HP: ${playerData[trimmedUserId].health}) at (${spawnPoint.x.toFixed(0)}, ${spawnPoint.y.toFixed(0)})`);
+            console.log(`Socket ${socket.id} joined as Player ${playerData[trimmedUserId].playerNumber} (Name: \"${trimmedPlayerName}\", HP: ${playerData[trimmedUserId].health}) at (${spawnPoint.x.toFixed(0)}, ${spawnPoint.y.toFixed(0)})`);
             socket.broadcast.emit('player_joined', playerData[trimmedUserId]);
             io.emit('server_message', `${trimmedPlayerName} has joined. (${connectedPlayersCount + 1}/${MAX_PLAYERS})`);
         }
@@ -501,12 +562,19 @@ io.on('connection', (socket) => {
             isActive: true,
             framesAlive: 0,
             tempId: projectileData.tempId,
-            // ##AI_MODIFICATION_START##
             positionHistory: [{ time: Date.now(), x: startX, y: startY }], // Initialize position history
-            // ##AI_MODIFICATION_END##
         };
-        // --- END OF SECURITY FIX ---\n\n        serverProjectiles.push(newServerProjectile);
-        io.emit('new_projectile_created', newServerProjectile);
+        // --- END OF SECURITY FIX ---
+
+        serverProjectiles.push(newServerProjectile);
+        
+        // ##AI_MODIFICATION_START##
+        // Create a "sanitized" version of the projectile to send to clients,
+        // removing the server-only positionHistory to save bandwidth.
+        const sanitizedProjectile = { ...newServerProjectile };
+        delete sanitizedProjectile.positionHistory;
+        io.emit('new_projectile_created', sanitizedProjectile);
+        // ##AI_MODIFICATION_END##
     });
 
     socket.on('ping_from_client', () => {
@@ -664,14 +732,12 @@ function updateServerProjectiles(currentTickTime) {
         const proj = serverProjectiles[i];
         if (!proj.isActive) continue;
 
-        // ##AI_MODIFICATION_START##
         // Record the projectile's current position and the current server time.
         proj.positionHistory.push({ time: currentTickTime, x: proj.x, y: proj.y });
         // Trim the history buffer to prevent it from growing indefinitely.
         if (proj.positionHistory.length > SV_PROJECTILE_MAX_HISTORY_POINTS) {
             proj.positionHistory.shift();
         }
-        // ##AI_MODIFICATION_END##
 
         proj.prevX = proj.x;
         proj.prevY = proj.y;
@@ -792,51 +858,9 @@ function updateServerProjectiles(currentTickTime) {
                 if (!(projMaxX < planetBounds.minX || projMinX > planetBounds.maxX || projMaxY < planetBounds.minY || projMinY > planetBounds.maxY)) {
                     
                     // ##AI_MODIFICATION_START##
-                    // This block implements the new, accurate lag compensation by rewinding projectile history.
-                    let checkSegmentStart = { x: proj.prevX, y: proj.prevY };
-                    let checkSegmentEnd = { x: proj.x, y: proj.y };
-                    const owner = playerData[proj.ownerUserId];
-
-                    if (owner && owner.isConnected && owner.ping > 0 && proj.positionHistory && proj.positionHistory.length > 1) {
-                        const history = proj.positionHistory;
-                        const halfPing = owner.ping / 2;
-                        
-                        // Don't rewind further back than our stored history allows.
-                        const rewindTimeMs = Math.min(halfPing, SV_PROJECTILE_HISTORY_DURATION_MS);
-                        
-                        const targetTime = currentTickTime - rewindTimeMs;
-                        const targetTimePrevFrame = targetTime - (1000 / SV_PROJECTILE_SIMULATION_FPS);
-
-                        // Helper function to find a projectile's position at a specific time in the past.
-                        const findHistoricalPosition = (time, historicalData) => {
-                            if (time < historicalData[0].time) {
-                                return { x: historicalData[0].x, y: historicalData[0].y };
-                            }
-                            // Iterate backwards to find the two points that surround the target time.
-                            for (let j = historicalData.length - 1; j > 0; j--) {
-                                const p2 = historicalData[j];   // Newer point
-                                const p1 = historicalData[j-1]; // Older point
-                                
-                                if (time >= p1.time && time <= p2.time) {
-                                    const timeDiff = p2.time - p1.time;
-                                    if (timeDiff <= 0) { // Should not happen, but safeguard.
-                                        return { x: p2.x, y: p2.y };
-                                    }
-                                    const interpolationFactor = (time - p1.time) / timeDiff;
-                                    const historicalX = p1.x + (p2.x - p1.x) * interpolationFactor;
-                                    const historicalY = p1.y + (p2.y - p1.y) * interpolationFactor;
-                                    return { x: historicalX, y: historicalY };
-                                }
-                            }
-                            // If time is newer than our latest history, use the latest known position.
-                            return { x: historicalData[historicalData.length - 1].x, y: historicalData[historicalData.length - 1].y };
-                        };
-
-                        checkSegmentEnd = findHistoricalPosition(targetTime, history);
-                        checkSegmentStart = findHistoricalPosition(targetTimePrevFrame, history);
-                    }
-                    
-                    const impact = serverFindAccurateImpactPoint(checkSegmentStart, checkSegmentEnd, planet);
+                    // The expensive rewind logic has been moved inside serverFindAccurateImpactPoint.
+                    // We now just pass the projectile and the current time to it.
+                    const impact = serverFindAccurateImpactPoint(proj, { x: proj.prevX, y: proj.prevY }, { x: proj.x, y: proj.y }, planet, currentTickTime);
                     // ##AI_MODIFICATION_END##
 
                     if (impact) {
@@ -925,7 +949,7 @@ function updateServerProjectiles(currentTickTime) {
     serverProjectiles = serverProjectiles.filter(p => p.isActive);
 }
 
-function updateServerChunks(currentTickTime) {
+function updateServerChunks() {
     if (serverChunks.length === 0) return;
     for (let i = serverChunks.length - 1; i >= 0; i--) {
         const chunk = serverChunks[i];
@@ -1012,7 +1036,8 @@ function updateServerChunks(currentTickTime) {
                 };
                 if (!(chunkMaxX < planetBounds.minX || chunkMinX > planetBounds.maxX || chunkMaxY < planetBounds.minY || chunkMinY > planetBounds.maxY)) {
 
-                    const impact = serverFindAccurateImpactPoint({ x: chunk.prevX, y: chunk.prevY }, { x: chunk.x, y: chunk.y }, planet);
+                    // Note: Chunks do not get lag compensation, so we use the simpler impact check.
+                    const impact = serverFindAccurateImpactPoint(null, { x: chunk.prevX, y: chunk.prevY }, { x: chunk.x, y: chunk.y }, planet, 0);
                     if (impact) {
                         chunk.isActive = false;
                         const impactSpeed_pixels_frame = Math.sqrt(chunk.vx ** 2 + chunk.vy ** 2);
@@ -1147,7 +1172,7 @@ function updateServerChunks(currentTickTime) {
     serverChunks = serverChunks.filter(c => c.isActive);
 }
 
-function updateServerPlanetDestructionStates(currentTickTime) {
+function updateServerPlanetDestructionStates() {
     serverPlanetsState.forEach(planet => {
         if (planet.isBreakingUp) {
             planet.breakupFrame++;
@@ -1196,10 +1221,10 @@ setInterval(() => {
     const deltaTime = (now - lastUpdateTime) / 1000.0;
     lastUpdateTime = now;
 
-    // Run all physics updates, passing the current server time for consistency
-    updateServerPlanetDestructionStates(now);
+    // Run all physics updates
+    updateServerPlanetDestructionStates();
     updateServerProjectiles(now);
-    updateServerChunks(now);
+    updateServerChunks();
 
     // Send state updates to clients if players are connected
     const connectedPlayerCount = Object.values(playerData).filter(p => p.isConnected).length;
@@ -1220,7 +1245,10 @@ setInterval(() => {
 setInterval(() => {
     io.emit('server_heartbeat');
 }, 25000); // 25 seconds
-// --- END: Server-to-Client Heartbeat ---\n\nserver.listen(PORT, '0.0.0.0', () => {\n    console.log(`Server for Planet Destroyer Online is running on http://0.0.0.0:${PORT}`);
+// --- END: Server-to-Client Heartbeat ---
+
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server for Planet Destroyer Online is running on http://0.0.0.0:${PORT}`);
     console.log("Socket.IO is attached and listening.");
     if (supabaseUrl && supabaseKey) console.log("Supabase client is configured.");
     else console.warn("Supabase URL/Key NOT DETECTED. Database features will fail.");
