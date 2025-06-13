@@ -101,15 +101,29 @@ export function renderGame() {
             // Clear the texture canvas before drawing
             textureCtx.clearRect(0, 0, planet.textureCanvas.width, planet.textureCanvas.height);
 
-            // Center the planet inside its own texture canvas for the bake
+            // ##AI_MODIFICATION_START##
+            // This is the fix. We create a new `planetForBaking` object.
+            // It contains all the original planet's data, but we overwrite its
+            // center and crater coordinates to be in the texture's local space.
+
+            // 1. Translate crater world coordinates to local texture coordinates.
+            const localCraters = planet.craters.map(crater => ({
+                ...crater, // Copy other crater properties like radius
+                x: crater.x - planet.x + planet.originalRadius,
+                y: crater.y - planet.y + planet.originalRadius
+            }));
+            
+            // 2. Create the object for the baking function.
             const planetForBaking = {
                 ...planet,
-                x: planet.originalRadius,
-                y: planet.originalRadius
+                x: planet.originalRadius,        // Center the planet in the texture
+                y: planet.originalRadius,
+                craters: localCraters            // Use the translated craters
             };
 
             // Call the expensive drawing function ONCE on the off-screen context
             drawPlanet.drawStaticCrateredPlanetInternal(textureCtx, planetForBaking);
+            // ##AI_MODIFICATION_END##
 
             // Mark the texture as up-to-date
             planet.textureNeedsUpdate = false;
