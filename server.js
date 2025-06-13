@@ -196,42 +196,42 @@ function serverCalculateBindingEnergy(planetMassKg, planetRadiusM) {
 }
 
 // ##AI_MODIFICATION_START##
-// The function signature is modified to accept the projectile object and current server time
-// so it can perform the rewind calculation internally, only when needed.
+// The function now safely handles the case where `proj` is null (e.g., when called by a chunk).
 function serverFindAccurateImpactPoint(proj, p1, p2, planet, currentTickTime) {
     let checkSegmentStart = p1;
     let checkSegmentEnd = p2;
-    const owner = playerData[proj.ownerUserId];
 
-    // Check if we need to rewind time for lag compensation.
-    if (owner && owner.isConnected && owner.ping > 0 && proj.positionHistory && proj.positionHistory.length > 1) {
-        const history = proj.positionHistory;
-        const halfPing = owner.ping / 2;
-        const rewindTimeMs = Math.min(halfPing, SV_PROJECTILE_HISTORY_DURATION_MS);
-        
-        const targetTime = currentTickTime - rewindTimeMs;
-        const targetTimePrevFrame = targetTime - (1000 / SV_PROJECTILE_SIMULATION_FPS);
+    // Only perform the expensive rewind logic if this is a valid projectile from a player with ping.
+    if (proj) {
+        const owner = playerData[proj.ownerUserId];
+        if (owner && owner.isConnected && owner.ping > 0 && proj.positionHistory && proj.positionHistory.length > 1) {
+            const history = proj.positionHistory;
+            const halfPing = owner.ping / 2;
+            const rewindTimeMs = Math.min(halfPing, SV_PROJECTILE_HISTORY_DURATION_MS);
+            
+            const targetTime = currentTickTime - rewindTimeMs;
+            const targetTimePrevFrame = targetTime - (1000 / SV_PROJECTILE_SIMULATION_FPS);
 
-        const findHistoricalPosition = (time, historicalData) => {
-            if (time <= historicalData[0].time) {
-                return { x: historicalData[0].x, y: historicalData[0].y };
-            }
-            for (let j = historicalData.length - 1; j > 0; j--) {
-                const pt2 = historicalData[j];
-                const pt1 = historicalData[j-1];
-                if (time >= pt1.time && time <= pt2.time) {
-                    const timeDiff = pt2.time - pt1.time;
-                    if (timeDiff <= 0) return { x: pt2.x, y: pt2.y };
-                    const factor = (time - pt1.time) / timeDiff;
-                    return { x: pt1.x + (pt2.x - pt1.x) * factor, y: pt1.y + (pt2.y - pt1.y) * factor };
+            const findHistoricalPosition = (time, historicalData) => {
+                if (time <= historicalData[0].time) {
+                    return { x: historicalData[0].x, y: historicalData[0].y };
                 }
-            }
-            return { x: historicalData[historicalData.length - 1].x, y: historicalData[historicalData.length - 1].y };
-        };
+                for (let j = historicalData.length - 1; j > 0; j--) {
+                    const pt2 = historicalData[j];
+                    const pt1 = historicalData[j-1];
+                    if (time >= pt1.time && time <= pt2.time) {
+                        const timeDiff = pt2.time - pt1.time;
+                        if (timeDiff <= 0) return { x: pt2.x, y: pt2.y };
+                        const factor = (time - pt1.time) / timeDiff;
+                        return { x: pt1.x + (pt2.x - pt1.x) * factor, y: pt1.y + (pt2.y - pt1.y) * factor };
+                    }
+                }
+                return { x: historicalData[historicalData.length - 1].x, y: historicalData[historicalData.length - 1].y };
+            };
 
-        // Overwrite the check-segment with the historically accurate positions.
-        checkSegmentEnd = findHistoricalPosition(targetTime, history);
-        checkSegmentStart = findHistoricalPosition(targetTimePrevFrame, history);
+            checkSegmentEnd = findHistoricalPosition(targetTime, history);
+            checkSegmentStart = findHistoricalPosition(targetTimePrevFrame, history);
+        }
     }
     
     // Now perform the fine-grained collision check using the (potentially rewound) segment.
@@ -568,13 +568,11 @@ io.on('connection', (socket) => {
 
         serverProjectiles.push(newServerProjectile);
         
-        // ##AI_MODIFICATION_START##
         // Create a "sanitized" version of the projectile to send to clients,
         // removing the server-only positionHistory to save bandwidth.
         const sanitizedProjectile = { ...newServerProjectile };
         delete sanitizedProjectile.positionHistory;
         io.emit('new_projectile_created', sanitizedProjectile);
-        // ##AI_MODIFICATION_END##
     });
 
     socket.on('ping_from_client', () => {
@@ -635,21 +633,6 @@ io.on('connection', (socket) => {
                     delete playerData[disconnectedPlayer.userId];
                 }
             }, DERELICT_CLEANUP_TIMEOUT_MS);
-
-            // ##AI_MODIFICATION_START##
-            // This block is now commented out to allow the world to persist when empty.
-            // The world will now only be reset by a player using the "Reset Game" button.
-            /*
-            if (connectedPlayersCount === 0) {
-                console.log("All players disconnected. Resetting world and clearing entities.");
-                generatePlanetsOnServer();
-                serverProjectiles = [];
-                nextProjectileId = 0;
-                serverChunks = [];
-                nextServerChunkId = 0;
-            }
-            */
-            // ##AI_MODIFICATION_END##
         } else {
             console.log(`--- Client disconnected: ${socket.id} (was not an active player or already removed) ---`);
         }
@@ -732,9 +715,7 @@ function updateServerProjectiles(currentTickTime) {
         const proj = serverProjectiles[i];
         if (!proj.isActive) continue;
 
-        // Record the projectile's current position and the current server time.
         proj.positionHistory.push({ time: currentTickTime, x: proj.x, y: proj.y });
-        // Trim the history buffer to prevent it from growing indefinitely.
         if (proj.positionHistory.length > SV_PROJECTILE_MAX_HISTORY_POINTS) {
             proj.positionHistory.shift();
         }
@@ -857,11 +838,7 @@ function updateServerProjectiles(currentTickTime) {
                 };
                 if (!(projMaxX < planetBounds.minX || projMinX > planetBounds.maxX || projMaxY < planetBounds.minY || projMinY > planetBounds.maxY)) {
                     
-                    // ##AI_MODIFICATION_START##
-                    // The expensive rewind logic has been moved inside serverFindAccurateImpactPoint.
-                    // We now just pass the projectile and the current time to it.
                     const impact = serverFindAccurateImpactPoint(proj, { x: proj.prevX, y: proj.prevY }, { x: proj.x, y: proj.y }, planet, currentTickTime);
-                    // ##AI_MODIFICATION_END##
 
                     if (impact) {
                         proj.isActive = false;
@@ -949,7 +926,7 @@ function updateServerProjectiles(currentTickTime) {
     serverProjectiles = serverProjectiles.filter(p => p.isActive);
 }
 
-function updateServerChunks() {
+function updateServerChunks(currentTickTime) {
     if (serverChunks.length === 0) return;
     for (let i = serverChunks.length - 1; i >= 0; i--) {
         const chunk = serverChunks[i];
@@ -1036,8 +1013,7 @@ function updateServerChunks() {
                 };
                 if (!(chunkMaxX < planetBounds.minX || chunkMinX > planetBounds.maxX || chunkMaxY < planetBounds.minY || chunkMinY > planetBounds.maxY)) {
 
-                    // Note: Chunks do not get lag compensation, so we use the simpler impact check.
-                    const impact = serverFindAccurateImpactPoint(null, { x: chunk.prevX, y: chunk.prevY }, { x: chunk.x, y: chunk.y }, planet, 0);
+                    const impact = serverFindAccurateImpactPoint(null, { x: chunk.prevX, y: chunk.prevY }, { x: chunk.x, y: chunk.y }, planet, currentTickTime);
                     if (impact) {
                         chunk.isActive = false;
                         const impactSpeed_pixels_frame = Math.sqrt(chunk.vx ** 2 + chunk.vy ** 2);
@@ -1224,7 +1200,7 @@ setInterval(() => {
     // Run all physics updates
     updateServerPlanetDestructionStates();
     updateServerProjectiles(now);
-    updateServerChunks();
+    updateServerChunks(now);
 
     // Send state updates to clients if players are connected
     const connectedPlayerCount = Object.values(playerData).filter(p => p.isConnected).length;
