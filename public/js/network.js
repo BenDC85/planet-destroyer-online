@@ -334,7 +334,12 @@ function setupSocketListeners() {
     });
 
     const handleHit = (hitData, isChunk) => {
-        const damage = hitData.damageDealt || config.PROJECTILE_DAMAGE;
+        // --- MODIFICATION START ---
+        // The server now always sends 'damageDealt' for both projectiles and chunks.
+        // We can simplify this to rely on the server's value, using ?? for safety.
+        const damage = hitData.damageDealt ?? 0;
+        // --- MODIFICATION END ---
+        
         const targetName = allPlayersData[hitData.hitPlayerId]?.playerName || 'A ship';
         const sourceName = isChunk ? 'debris' : (allPlayersData[hitData.shooterId]?.playerName || 'a projectile');
         addMessageToLog(`${targetName} was hit by ${sourceName} for ${damage} damage! HP: ${hitData.newHealth}`);

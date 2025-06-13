@@ -117,9 +117,8 @@ const SV_PHYSICS_CONSTANTS = {
 // --- MODIFICATION START ---
 const SV_SHIP_RADIUS_PX = 30;
 const SV_SHIP_DEFAULT_HEALTH = 1000; // Increased player health
-const SV_PROJECTILE_DAMAGE = 25;
-// const SV_CHUNK_DAMAGE_MIN = 5; // No longer needed
-// const SV_CHUNK_DAMAGE_MAX = 40; // No longer needed
+// const SV_PROJECTILE_DAMAGE = 25; // No longer used, damage is now dynamic.
+const SV_PROJECTILE_DAMAGE_KE_SCALING_FACTOR = 0.08; // New constant for dynamic projectile damage.
 const SV_CHUNK_DAMAGE_SQRT_KE_SCALING_FACTOR = 0.05; // Damage is now uncapped and based on Sqrt(KE)
 // --- MODIFICATION END ---
 const SV_SHIP_RESPAWN_DELAY_MS = 5000;
@@ -379,8 +378,7 @@ function generatePlanetsOnServer(numPlanetsOverride = null) {
 // END OF UTILITY FUNCTIONS
 // =================================================================================
 
-// --- BEGIN: Health Check Endpoint ---
-// This route is used by the hosting platform (Render) to verify the server is alive.
+// --- BEGIN: Health Check Endpoint ---\n// This route is used by the hosting platform (Render) to verify the server is alive.
 app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
@@ -782,9 +780,27 @@ function updateServerProjectiles(currentTickTime) {
                 const collisionDist = SV_SHIP_RADIUS_PX + (SV_PROJECTILE_SIZE_PX / 2);
                 if (distSqToShip < collisionDist * collisionDist) {
                     proj.isActive = false;
-                    player.health -= SV_PROJECTILE_DAMAGE;
-                    console.log(`[SERVER] Projectile ${proj.id} (owner: ${proj.ownerUserId}) HIT SHIP ${player.userId}. Player Health: ${player.health}`);
-                    io.emit('ship_hit', { projectileId: proj.id, hitPlayerId: player.userId, newHealth: player.health, shooterId: proj.ownerUserId });
+
+                    // --- MODIFICATION START: Dynamic projectile damage ---
+                    const impactSpeed_pixels_frame = Math.sqrt(proj.vx ** 2 + proj.vy ** 2);
+                    const impactSpeed_mps = Math.max(0.1, impactSpeed_pixels_frame / SV_PIXELS_PER_METER / SV_PROJECTILE_SECONDS_PER_FRAME);
+                    const kineticEnergy = 0.5 * proj.massKg * (impactSpeed_mps ** 2);
+                    const damageDealt = Math.round(Math.sqrt(kineticEnergy) * SV_PROJECTILE_DAMAGE_KE_SCALING_FACTOR);
+                    
+                    player.health -= damageDealt;
+                    
+                    console.log(`[SERVER] Projectile ${proj.id} (owner: ${proj.ownerUserId}) HIT SHIP ${player.userId} for ${damageDealt} damage. Player Health: ${player.health}`);
+                    
+                    // Emit the hit event with the new damageDealt field
+                    io.emit('ship_hit', {
+                        projectileId: proj.id,
+                        hitPlayerId: player.userId,
+                        newHealth: player.health,
+                        shooterId: proj.ownerUserId,
+                        damageDealt: damageDealt // Pass the calculated damage to the client
+                    });
+                    // --- MODIFICATION END ---
+                    
                     if (player.health <= 0) {
                         player.isAlive = false;
                         player.health = 0;
@@ -1101,8 +1117,7 @@ function updateServerChunks(currentTickTime) {
                     const chunkSpeed_mps = Math.max(0.1, chunkSpeed_pixels_frame / SV_PIXELS_PER_METER / SV_CHUNK_SECONDS_PER_FRAME);
                     const kineticEnergy = 0.5 * chunk.massKg * (chunkSpeed_mps ** 2);
                     
-                    // --- MODIFICATION START ---
-                    // Calculate raw damage based on the Sqrt of KE. This is now uncapped.
+                    // --- MODIFICATION START ---\n                    // Calculate raw damage based on the Sqrt of KE. This is now uncapped.
                     const rawDamage = Math.round(Math.sqrt(kineticEnergy) * SV_CHUNK_DAMAGE_SQRT_KE_SCALING_FACTOR);
                     
                     // The damage is no longer clamped.
