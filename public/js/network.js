@@ -1,3 +1,4 @@
+/* File: public/js/network.js */
 // public/js/network.js
 
 import { initializeGame, stopGameLoop } from './main.js';
@@ -137,9 +138,6 @@ function setupSocketListeners() {
         addMessageToLog(`${newPlayerData.playerName} has joined.`);
     });
 
-    // --- REVISED EVENT HANDLERS FOR NEW SERVER LOGIC ---
-
-
     socket.on('player_disconnected', (data) => {
         if (allPlayersData[data.userId]) {
             allPlayersData[data.userId].isConnected = false;
@@ -164,11 +162,7 @@ function setupSocketListeners() {
         }
     });
 
-    // --- END REVISED EVENT HANDLERS ---
-
-
     socket.on('player_moved', (data) => {
-        // Now using userId
         if (allPlayersData[data.userId] && myServerData && data.userId !== myServerData.userId) {
             allPlayersData[data.userId].x = data.x;
             allPlayersData[data.userId].y = data.y;
@@ -188,7 +182,6 @@ function setupSocketListeners() {
         if (!clientState) return;
 
         let projectileToUpdate = null;
-        // Projectile ownership is now by userId
         if (projectileDataFromServer.ownerUserId === getMyPlayerId() && projectileDataFromServer.tempId) {
             projectileToUpdate = clientState.projectiles.find(p => p.id === projectileDataFromServer.tempId);
         }
@@ -197,11 +190,10 @@ function setupSocketListeners() {
             projectileToUpdate.id = projectileDataFromServer.id;
             projectileToUpdate.isGhost = false;
             projectileToUpdate.applyServerUpdate(projectileDataFromServer);
-            // console.log(`[NETWORK] Promoted ghost projectile ${projectileDataFromServer.tempId} to ${projectileDataFromServer.id}`);
         } else {
             const newProj = new Projectile(
                 projectileDataFromServer.id,
-                projectileDataFromServer.ownerUserId, // Now ownerUserId
+                projectileDataFromServer.ownerUserId,
                 projectileDataFromServer.x,
                 projectileDataFromServer.y,
                 projectileDataFromServer.angle,
@@ -226,10 +218,7 @@ function setupSocketListeners() {
 
         const activeServerIds = new Set(serverProjectilesData.map(p => p.id));
         clientState.projectiles = clientState.projectiles.filter(p => {
-             // Keep the projectile if the server says it's active, OR it's a client-side ghost, OR it's a non-ghost projectile that just hit something and needs to show its trail
-            // ##AI_MODIFICATION_START##
             return activeServerIds.has(p.id) || p.isGhost || (p.trailPersistsAfterImpact && p.trailLife > 0);
-            // ##AI_MODIFICATION_END##
         });
     });
 
@@ -242,18 +231,12 @@ function setupSocketListeners() {
             projectile.isActive = false;
         }
 
-        // --- THIS IS THE FIX ---
-        // The problem was that we were adding the crater here predictively.
-        // This caused the authoritative `planet_update` to think nothing changed.
-        // We will now ONLY rely on the `planet_update` event to modify the planet.
-        // We can, however, add an immediate particle effect for better user feedback.
         if (hitData.impactPoint) {
             const numParticles = 8 + Math.floor(Math.random() * 8);
             for (let i = 0; i < numParticles; i++) {
                 addParticleToState(new Particle(hitData.impactPoint.x, hitData.impactPoint.y));
             }
         }
-        // --- END OF FIX ---
     });
 
     socket.on('projectile_absorbed_by_bh', (data) => {
@@ -269,7 +252,6 @@ function setupSocketListeners() {
         const clientState = getState();
         if (!clientState?.settings) return;
         newChunksData.forEach(chunkData => {
-            // Check if chunk already exists to prevent duplicates on reconnect/resync
             if (!clientState.chunks.some(c => c.id === chunkData.id)) {
                 clientState.chunks.push(new Chunk(chunkData, clientState.settings));
             }
@@ -394,23 +376,19 @@ function setupSocketListeners() {
             const chunk = clientState.chunks.find(c => c.id === data.chunkId);
             if (chunk) chunk.isActive = false;
         }
-        if (clientState.planets) {
-            const planet = clientState.planets.find(p => p.id === data.planetId);
-            if (planet && data.newCrater) {
-                if (!planet.craters) planet.craters = [];
-                const craterExists = planet.craters.some(c => Math.abs(c.x - data.newCrater.x) < 0.1);
-                if (!craterExists) planet.craters.push(data.newCrater);
-
-                // The textureNeedsUpdate flag is NO LONGER set here. It's handled by planet_update.
-
-                if (data.impactPoint) {
-                    const numParticles = 5 + Math.floor(Math.random() * 5);
-                    for (let i = 0; i < numParticles; i++) {
-                        addParticleToState(new Particle(data.impactPoint.x, data.impactPoint.y, 0.5, 0.7));
-                    }
-                }
+        
+        // ##AI_MODIFICATION_START##
+        // REMOVED: Predictive crater adding. This is now handled exclusively by the 'planet_update'
+        // event to prevent race conditions and ensure the texture is correctly re-baked.
+        
+        // Create an immediate particle effect for better user feedback.
+        if (data.impactPoint) {
+            const numParticles = 5 + Math.floor(Math.random() * 5);
+            for (let i = 0; i < numParticles; i++) {
+                addParticleToState(new Particle(data.impactPoint.x, data.impactPoint.y, 0.5, 0.7));
             }
         }
+        // ##AI_MODIFICATION_END##
     });
 
     socket.on('chunk_absorbed_by_bh', (data) => {
@@ -443,14 +421,9 @@ function setupSocketListeners() {
         }
     });
 
-    // --- BEGIN: Server Heartbeat Listener ---
-    // This listener exists solely to keep the connection alive.
-    // Receiving this event from the server prevents idle timeouts.
     socket.on('server_heartbeat', () => {
-        // We don't need to do anything, but a log can be useful for debugging.
         // console.log('Received server heartbeat.');
     });
-    // --- END: Server Heartbeat Listener ---
 
 
     socket.on('disconnect', (reason) => {
@@ -484,7 +457,7 @@ export function sendShipUpdate(shipState) {
 }
 
 export function sendProjectileFireRequest(projectileData) { if (socket.connected && myServerData?.isAlive) socket.emit('request_fire_projectile', projectileData); }
-export function getMyPlayerId() { return myServerData ? myServerData.userId : null; } // CRITICAL CHANGE
+export function getMyPlayerId() { return myServerData ? myServerData.userId : null; }
 export function getClientSidePlayers() { return allPlayersData; }
 export function getMyNetworkData() { return myServerData; }
 
