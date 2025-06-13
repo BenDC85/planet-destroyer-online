@@ -205,10 +205,13 @@ function setupSocketListeners() {
         }
     });
 
+    // ##AI_MODIFICATION_START##
     socket.on('projectiles_update', (serverProjectilesData) => {
         const clientState = getState();
         if (!clientState?.projectiles) return;
-        
+
+        // First, apply updates from the server to all matching projectiles.
+        // This ensures even a culled projectile has its final position before we detonate it.
         serverProjectilesData.forEach(serverProjData => {
             const clientProj = clientState.projectiles.find(p => p.id === serverProjData.id);
             if (clientProj) {
@@ -216,11 +219,44 @@ function setupSocketListeners() {
             }
         });
 
+        // Now, process the full list to decide which to keep, detonate, or remove.
         const activeServerIds = new Set(serverProjectilesData.map(p => p.id));
-        clientState.projectiles = clientState.projectiles.filter(p => {
-            return activeServerIds.has(p.id) || p.isGhost || (p.trailPersistsAfterImpact && p.trailLife > 0);
-        });
+        const projectilesToKeep = [];
+
+        for (const proj of clientState.projectiles) {
+            const serverKnowsAboutIt = activeServerIds.has(proj.id);
+
+            if (serverKnowsAboutIt || proj.isGhost) {
+                // KEEP: The server says it's active, or it's a new ghost we are predicting.
+                projectilesToKeep.push(proj);
+            } else if (proj.isActive) {
+                // DETONATE: This projectile was just culled by the server.
+                // It's not a ghost, it was active, and the server no longer knows about it.
+                
+                // 1. Create the explosion sparks at its last known position.
+                const numParticles = 8 + Math.floor(Math.random() * 8);
+                for (let i = 0; i < numParticles; i++) {
+                    addParticleToState(new Particle(proj.x, proj.y));
+                }
+
+                // 2. Set it to inactive. This stops its movement/physics and starts the trail fade-out.
+                proj.isActive = false;
+
+                // 3. Keep it for now, so its trail can render and fade.
+                projectilesToKeep.push(proj);
+            } else {
+                // FADING OUT: It's already inactive (from a prior hit or cull).
+                // Keep it only if its trail still has life left.
+                if (proj.trailPersistsAfterImpact && proj.trailLife > 0) {
+                    projectilesToKeep.push(proj);
+                }
+            }
+        }
+
+        // Finally, replace the old array with the newly filtered one.
+        clientState.projectiles = projectilesToKeep;
     });
+    // ##AI_MODIFICATION_END##
 
     socket.on('projectile_hit_planet', (hitData) => {
         const clientState = getState();
