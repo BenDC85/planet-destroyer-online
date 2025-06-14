@@ -378,7 +378,8 @@ function generatePlanetsOnServer(numPlanetsOverride = null) {
 // END OF UTILITY FUNCTIONS
 // =================================================================================
 
-// --- BEGIN: Health Check Endpoint ---\n// This route is used by the hosting platform (Render) to verify the server is alive.
+// --- BEGIN: Health Check Endpoint ---
+// This route is used by the hosting platform (Render) to verify the server is alive.
 app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
@@ -1117,7 +1118,8 @@ function updateServerChunks(currentTickTime) {
                     const chunkSpeed_mps = Math.max(0.1, chunkSpeed_pixels_frame / SV_PIXELS_PER_METER / SV_CHUNK_SECONDS_PER_FRAME);
                     const kineticEnergy = 0.5 * chunk.massKg * (chunkSpeed_mps ** 2);
                     
-                    // --- MODIFICATION START ---\n                    // Calculate raw damage based on the Sqrt of KE. This is now uncapped.
+                    // --- MODIFICATION START ---
+                    // Calculate raw damage based on the Sqrt of KE. This is now uncapped.
                     const rawDamage = Math.round(Math.sqrt(kineticEnergy) * SV_CHUNK_DAMAGE_SQRT_KE_SCALING_FACTOR);
                     
                     // The damage is no longer clamped.
@@ -1208,22 +1210,31 @@ function updateServerPlanetDestructionStates() {
 // --- MAIN GAME LOOP (Combined) ---
 let lastUpdateTime = Date.now();
 setInterval(() => {
-    const now = Date.now();
-    const deltaTime = (now - lastUpdateTime) / 1000.0;
-    lastUpdateTime = now;
+    try { // <--- Start of new try block
+        const now = Date.now();
+        const deltaTime = (now - lastUpdateTime) / 1000.0;
+        lastUpdateTime = now;
 
-    updateServerPlanetDestructionStates();
-    updateServerProjectiles(now);
-    updateServerChunks(now);
+        // Verbose logging to help debug state
+        const connectedPlayerCount = Object.values(playerData).filter(p => p.isConnected).length;
+        console.log(`[TICK] Time: ${now}, Players: ${connectedPlayerCount}, Projectiles: ${serverProjectiles.length}, Chunks: ${serverChunks.length}`);
 
-    const connectedPlayerCount = Object.values(playerData).filter(p => p.isConnected).length;
-    if (connectedPlayerCount > 0) {
-        const projectileUpdates = serverProjectiles.map(p => ({ id: p.id, x: p.x, y: p.y, vx: p.vx, vy: p.vy, isActive: p.isActive }));
-        if (projectileUpdates.length > 0) io.emit('projectiles_update', projectileUpdates);
-        
-        const chunkUpdates = serverChunks.map(c => ({ id: c.id, x: c.x, y: c.y, vx: c.vx, vy: c.vy, angle: c.angle, isActive: c.isActive }));
-        if (chunkUpdates.length > 0) io.emit('chunks_update', chunkUpdates);
-    }
+        updateServerPlanetDestructionStates();
+        updateServerProjectiles(now);
+        updateServerChunks(now);
+
+        if (connectedPlayerCount > 0) {
+            const projectileUpdates = serverProjectiles.map(p => ({ id: p.id, x: p.x, y: p.y, vx: p.vx, vy: p.vy, isActive: p.isActive }));
+            if (projectileUpdates.length > 0) io.emit('projectiles_update', projectileUpdates);
+            
+            const chunkUpdates = serverChunks.map(c => ({ id: c.id, x: c.x, y: c.y, vx: c.vx, vy: c.vy, angle: c.angle, isActive: c.isActive }));
+            if (chunkUpdates.length > 0) io.emit('chunks_update', chunkUpdates);
+        }
+
+    } catch (error) { // <--- Start of new catch block
+        console.error("!!!! FATAL ERROR IN GAME LOOP !!!!");
+        console.error(error.stack); // Log the full error stack trace
+    } // <--- End of new catch block
 
 }, 1000 / SV_PROJECTILE_SIMULATION_FPS);
 
